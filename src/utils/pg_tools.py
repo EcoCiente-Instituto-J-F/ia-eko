@@ -487,7 +487,805 @@ def resumo_reciclagem_condominio(
     finally:
         _safe_close(cur, conn)
 
+
+# Tool: resumo_reciclagem_morador (visão micro: individual)
+
+class ResumoMoradorArgs(BaseModel):
+    usuario_id: int = Field(..., description="ID do usuário (morador residencial ou usuário comercial).")
+    data_inicio: Optional[str] = Field(default=None, description="Data inicial local (YYYY-MM-DD).")
+    data_fim: Optional[str] = Field(default=None, description="Data final local (YYYY-MM-DD).")
+    periodo: Optional[str] = Field(default=None, description="Atalho: hoje | semana | mes | mes_anterior | ano.")
+
+
+@tool("resumo_reciclagem_morador", args_schema=ResumoMoradorArgs)
+def resumo_reciclagem_morador(
+    usuario_id: int,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    periodo: Optional[str] = None,
+) -> dict:
+    """
+    Visão individual (micro) de reciclagem de um morador/usuário comercial:
+    total de postagens por status, pontos estimados, categoria favorita, e
+    comparação percentual com a média da sua torre e do condomínio no mesmo
+    período. Não calcula posição/colocação — isso é responsabilidade do
+    ranking em Redis.
+    """
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        data_inicio, data_fim = _resolve_periodo(periodo, data_inicio, data_fim)
+
+        contexto = _resolve_contexto_usuario(cur, usuario_id)
+        condominio_id = contexto["condominio_id"]
+        torre_id = contexto["torre_id"]
+
+        if not condominio_id:
+            return {"status": "error", "message": "Usuário não está vinculado a nenhum condomínio."}
+
+        # Postagens por status
+        params_status: List[object] = [usuario_id]
+        frag_status = _date_filter_fragment(POSTAGEM_BUSINESS_DATE_SQL, data_inicio, data_fim, params_status)
+        cur.execute(
+            f"""
+            SELECT sv.nome_status, COUNT(*)
+            FROM postagens p
+            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            WHERE p.usuario_id = %s {frag_status}
+            GROUP BY sv.nome_status;
+            """,
+            tuple(params_status)
+        )
+        totais_status = {nome: qtd for nome, qtd in cur.fetchall()}
+        total_postagens = sum(totais_status.values())
+
+        # Pontos estimados do usuário (aprovadas)
+        params_pts: List[object] = [usuario_id]
+        frag_pts = _date_filter_fragment(POSTAGEM_BUSINESS_DATE_SQL, data_inicio, data_fim, params_pts)
+        cur.execute(
+            f"""
+            SELECT COALESCE(SUM(cr.pontos_base), 0)
+            FROM postagens p
+            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            WHERE p.usuario_id = %s AND sv.nome_status = 'aprovada' {frag_pts};
+            """,
+            tuple(params_pts)
+        )
+        pontos_usuario = int(cur.fetchone()[0])
+
+        # Categoria favorita
+        params_fav: List[object] = [usuario_id]
+        frag_fav = _date_filter_fragment(POSTAGEM_BUSINESS_DATE_SQL, data_inicio, data_fim, params_fav)
+        cur.execute(
+            f"""
+            SELECT cr.nome_categoria, COUNT(*) AS qtd
+            FROM postagens p
+            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            WHERE p.usuario_id = %s {frag_fav}
+            GROUP BY cr.nome_categoria
+            ORDER BY qtd DESC
+            LIMIT 1;
+            """,
+            tuple(params_fav)
+        )
+        row = cur.fetchone()
+        categoria_favorita = row[0] if row else None
+
+        def _media_pontos_por_usuario(campo: str, valor) -> float:
+            params: List[object] = [valor]
+            frag = _date_filter_fragment(POSTAGEM_BUSINESS_DATE_SQL, data_inicio, data_fim, params)
+            cur.execute(
+                f"""
+                SELECT COALESCE(AVG(pontos_por_usuario.pontos), 0)
+                FROM (
+                    SELECT p.usuario_id, COALESCE(SUM(cr.pontos_base), 0) AS pontos
+                    FROM postagens p
+                    JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+                    JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+                    WHERE {campo} = %s AND sv.nome_status = 'aprovada' {frag}
+                    GROUP BY p.usuario_id
+                ) AS pontos_por_usuario;
+                """,
+                tuple(params)
+            )
+            return float(cur.fetchone()[0])
+
+        media_torre = _media_pontos_por_usuario("p.torre_id", torre_id) if torre_id else None
+        media_condominio = _media_pontos_por_usuario("p.condominio_id", condominio_id)
+
+        def _comparativo(valor, media):
+            if media is None or media == 0:
+                return None
+            return round(((valor - media) / media) * 100, 2)
+
+        return {
+            "status": "ok",
+            "usuario_id": usuario_id,
+            "condominio_id": condominio_id,
+            "torre_id": torre_id,
+            "periodo": {"data_inicio": data_inicio, "data_fim": data_fim},
+            "postagens_por_status": totais_status,
+            "total_postagens": total_postagens,
+            "pontos_estimados": pontos_usuario,
+            "categoria_favorita": categoria_favorita,
+            "media_pontos_torre": media_torre,
+            "comparativo_percentual_torre": _comparativo(pontos_usuario, media_torre),
+            "media_pontos_condominio": media_condominio,
+            "comparativo_percentual_condominio": _comparativo(pontos_usuario, media_condominio),
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
+# Tool: comparar_torres
+
+class CompararTorresArgs(BaseModel):
+    condominio_id: int = Field(..., description="ID do condomínio.")
+    torre_ids: Optional[List[int]] = Field(
+        default=None,
+        description="IDs de torres a comparar. Se omitido, compara todas as torres do condomínio."
+    )
+    data_inicio: Optional[str] = Field(default=None, description="Data inicial local (YYYY-MM-DD).")
+    data_fim: Optional[str] = Field(default=None, description="Data final local (YYYY-MM-DD).")
+    periodo: Optional[str] = Field(default=None, description="Atalho: hoje | semana | mes | mes_anterior | ano.")
+
+
+@tool("comparar_torres", args_schema=CompararTorresArgs)
+def comparar_torres(
+    condominio_id: int,
+    torre_ids: Optional[List[int]] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    periodo: Optional[str] = None,
+) -> dict:
+    """Compara torres de um condomínio em volume de postagens, taxa de aprovação, pontos estimados e participação, em um período."""
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        data_inicio, data_fim = _resolve_periodo(periodo, data_inicio, data_fim)
+
+        params: List[object] = []
+        frag_on = _date_filter_fragment(POSTAGEM_BUSINESS_DATE_SQL, data_inicio, data_fim, params)
+
+        sql = f"""
+            SELECT
+                t.id_torre,
+                t.nome_torre,
+                (
+                    SELECT COUNT(*)
+                    FROM moradores m
+                    JOIN unidades u ON u.id_unidade = m.unidade_id
+                    WHERE u.torre_id = t.id_torre
+                ) AS moradores_total,
+                COUNT(DISTINCT p.usuario_id) AS moradores_participantes,
+                COUNT(p.id_postagem) AS postagens_total,
+                COUNT(*) FILTER (WHERE sv.nome_status = 'aprovada') AS postagens_aprovadas,
+                COALESCE(SUM(cr.pontos_base) FILTER (WHERE sv.nome_status = 'aprovada'), 0) AS pontos_estimados
+            FROM torres t
+            LEFT JOIN postagens p ON p.torre_id = t.id_torre {frag_on}
+            LEFT JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            LEFT JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            WHERE t.condominio_id = %s
+        """
+        params.append(condominio_id)
+
+        if torre_ids:
+            sql += " AND t.id_torre = ANY(%s)"
+            params.append(torre_ids)
+
+        sql += " GROUP BY t.id_torre, t.nome_torre ORDER BY postagens_total DESC;"
+
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+
+        torres = []
+        for r in rows:
+            total = r[4]
+            aprovadas = r[5]
+            taxa_aprovacao = round((aprovadas / total * 100), 2) if total else 0.0
+            torres.append({
+                "torre_id": r[0],
+                "torre_nome": r[1],
+                "moradores_total": r[2],
+                "moradores_participantes": r[3],
+                "postagens_total": total,
+                "postagens_aprovadas": aprovadas,
+                "taxa_aprovacao": taxa_aprovacao,
+                "pontos_estimados": r[6],
+            })
+
+        return {
+            "status": "ok",
+            "condominio_id": condominio_id,
+            "periodo": {"data_inicio": data_inicio, "data_fim": data_fim},
+            "torres": torres,
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
+# Tool: comparar_periodos
+
+class CompararPeriodosArgs(BaseModel):
+    condominio_id: int = Field(..., description="ID do condomínio.")
+    torre_id: Optional[int] = Field(default=None, description="Filtra por torre.")
+    data_inicio: str = Field(..., description="Início do período mais recente (YYYY-MM-DD).")
+    data_fim: str = Field(..., description="Fim do período mais recente (YYYY-MM-DD).")
+    comparar_periodo_anterior_equivalente: bool = Field(
+        default=True,
+        description="Se True, calcula automaticamente o período anterior de mesma duração para comparação."
+    )
+    data_inicio_comparacao: Optional[str] = Field(default=None, description="Início do período de comparação (se não automático).")
+    data_fim_comparacao: Optional[str] = Field(default=None, description="Fim do período de comparação (se não automático).")
+
+
+@tool("comparar_periodos", args_schema=CompararPeriodosArgs)
+def comparar_periodos(
+    condominio_id: int,
+    data_inicio: str,
+    data_fim: str,
+    torre_id: Optional[int] = None,
+    comparar_periodo_anterior_equivalente: bool = True,
+    data_inicio_comparacao: Optional[str] = None,
+    data_fim_comparacao: Optional[str] = None,
+) -> dict:
+    """Compara métricas de reciclagem (postagens, aprovação, pontos, participação) entre dois períodos, ex.: mês atual vs. mês anterior."""
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        if comparar_periodo_anterior_equivalente and not (data_inicio_comparacao and data_fim_comparacao):
+            d_ini = date.fromisoformat(data_inicio)
+            d_fim = date.fromisoformat(data_fim)
+            duracao_dias = (d_fim - d_ini).days + 1
+            data_fim_comparacao = (d_ini - timedelta(days=1)).isoformat()
+            data_inicio_comparacao = (d_ini - timedelta(days=duracao_dias)).isoformat()
+
+        if not (data_inicio_comparacao and data_fim_comparacao):
+            return {"status": "error", "message": "Informe data_inicio_comparacao e data_fim_comparacao, ou use comparar_periodo_anterior_equivalente=True."}
+
+        def _metrics(d_ini: str, d_fim: str) -> dict:
+            params: List[object] = [condominio_id, d_ini, d_fim]
+            torre_frag = ""
+            if torre_id:
+                torre_frag = " AND p.torre_id = %s"
+                params.append(torre_id)
+            cur.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE sv.nome_status = 'aprovada') AS aprovadas,
+                    COALESCE(SUM(cr.pontos_base) FILTER (WHERE sv.nome_status = 'aprovada'), 0) AS pontos,
+                    COUNT(DISTINCT p.usuario_id) AS participantes
+                FROM postagens p
+                JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+                JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+                WHERE p.condominio_id = %s
+                  AND {POSTAGEM_BUSINESS_DATE_SQL} >= %s::date
+                  AND {POSTAGEM_BUSINESS_DATE_SQL} <= %s::date
+                  {torre_frag};
+                """,
+                tuple(params)
+            )
+            row = cur.fetchone()
+            return {
+                "total_postagens": row[0],
+                "aprovadas": row[1],
+                "pontos_estimados": row[2],
+                "moradores_participantes": row[3],
+            }
+
+        metrica_atual = _metrics(data_inicio, data_fim)
+        metrica_anterior = _metrics(data_inicio_comparacao, data_fim_comparacao)
+
+        def _crescimento(atual, anterior):
+            if not anterior:
+                return None
+            return round(((atual - anterior) / anterior) * 100, 2)
+
+        return {
+            "status": "ok",
+            "condominio_id": condominio_id,
+            "torre_id": torre_id,
+            "periodo_atual": {"data_inicio": data_inicio, "data_fim": data_fim, **metrica_atual},
+            "periodo_comparacao": {"data_inicio": data_inicio_comparacao, "data_fim": data_fim_comparacao, **metrica_anterior},
+            "crescimento_percentual": {
+                "postagens": _crescimento(metrica_atual["total_postagens"], metrica_anterior["total_postagens"]),
+                "pontos": _crescimento(metrica_atual["pontos_estimados"], metrica_anterior["pontos_estimados"]),
+                "participantes": _crescimento(metrica_atual["moradores_participantes"], metrica_anterior["moradores_participantes"]),
+            },
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
+# Tool: taxa_aprovacao_postagens
+
+class TaxaAprovacaoArgs(BaseModel):
+    condominio_id: Optional[int] = Field(default=None, description="Filtra por condomínio.")
+    torre_id: Optional[int] = Field(default=None, description="Filtra por torre.")
+    categoria_id: Optional[int] = Field(default=None, description="Filtra por categoria (id).")
+    categoria_nome: Optional[str] = Field(default=None, description="Filtra por categoria (nome, ex.: plástico).")
+    data_inicio: Optional[str] = Field(default=None, description="Data inicial local (YYYY-MM-DD).")
+    data_fim: Optional[str] = Field(default=None, description="Data final local (YYYY-MM-DD).")
+    periodo: Optional[str] = Field(default=None, description="Atalho: hoje | semana | mes | mes_anterior | ano.")
+    agrupar_por: str = Field(default="categoria", description="Como agrupar o resultado: 'categoria' ou 'torre'.")
+
+
+@tool("taxa_aprovacao_postagens", args_schema=TaxaAprovacaoArgs)
+def taxa_aprovacao_postagens(
+    condominio_id: Optional[int] = None,
+    torre_id: Optional[int] = None,
+    categoria_id: Optional[int] = None,
+    categoria_nome: Optional[str] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    periodo: Optional[str] = None,
+    agrupar_por: str = "categoria",
+) -> dict:
+    """Mostra a taxa de aprovação/análise/reprovação das postagens, agrupada por categoria de resíduo ou por torre."""
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        data_inicio, data_fim = _resolve_periodo(periodo, data_inicio, data_fim)
+        resolved_categoria_id = _resolve_categoria_id(cur, categoria_id, categoria_nome)
+        if categoria_nome and not categoria_id and not resolved_categoria_id:
+            return {"status": "error", "message": f"Categoria '{categoria_nome}' não encontrada."}
+
+        modo = _normalize_text(agrupar_por)
+        if modo == "torre":
+            group_id_field = "t.id_torre"
+            group_name_field = "t.nome_torre"
+            join_extra = "LEFT JOIN torres t ON t.id_torre = p.torre_id"
+        else:
+            group_id_field = "cr.id_categoria"
+            group_name_field = "cr.nome_categoria"
+            join_extra = ""
+
+        sql = f"""
+            SELECT
+                {group_id_field} AS grupo_id,
+                {group_name_field} AS grupo_nome,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE sv.nome_status = 'aprovada') AS aprovadas,
+                COUNT(*) FILTER (WHERE sv.nome_status = 'em_analise') AS em_analise,
+                COUNT(*) FILTER (WHERE sv.nome_status = 'reprovada') AS reprovadas
+            FROM postagens p
+            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            {join_extra}
+            WHERE 1=1
+        """
+        params: List[object] = []
+
+        if condominio_id:
+            sql += " AND p.condominio_id = %s"
+            params.append(condominio_id)
+
+        if torre_id:
+            sql += " AND p.torre_id = %s"
+            params.append(torre_id)
+
+        if resolved_categoria_id:
+            sql += " AND p.categoria_id = %s"
+            params.append(resolved_categoria_id)
+
+        sql += _date_filter_fragment(POSTAGEM_BUSINESS_DATE_SQL, data_inicio, data_fim, params)
+
+        sql += f" GROUP BY {group_id_field}, {group_name_field} ORDER BY total DESC;"
+
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+
+        grupos = []
+        for r in rows:
+            total = r[2]
+            aprovadas = r[3]
+            grupos.append({
+                "grupo_id": r[0],
+                "grupo_nome": r[1],
+                "total": total,
+                "aprovadas": aprovadas,
+                "em_analise": r[4],
+                "reprovadas": r[5],
+                "taxa_aprovacao": round((aprovadas / total * 100), 2) if total else 0.0,
+            })
+
+        return {
+            "status": "ok",
+            "agrupado_por": "torre" if modo == "torre" else "categoria",
+            "periodo": {"data_inicio": data_inicio, "data_fim": data_fim},
+            "grupos": grupos,
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
+
+# Tool: evolucao_reciclagem_periodo
+
+
+class EvolucaoReciclagemArgs(BaseModel):
+    condominio_id: int = Field(..., description="ID do condomínio.")
+    torre_id: Optional[int] = Field(default=None, description="Filtra por torre.")
+    data_inicio: Optional[str] = Field(default=None, description="Data inicial local (YYYY-MM-DD). Padrão: 30 dias atrás.")
+    data_fim: Optional[str] = Field(default=None, description="Data final local (YYYY-MM-DD). Padrão: hoje.")
+    granularidade: str = Field(default="dia", description="Agrupamento da série: 'dia', 'semana' ou 'mes'.")
+
+
+@tool("evolucao_reciclagem_periodo", args_schema=EvolucaoReciclagemArgs)
+def evolucao_reciclagem_periodo(
+    condominio_id: int,
+    torre_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    granularidade: str = "dia",
+) -> dict:
+    """Série temporal de postagens e pontos estimados de um condomínio (ou torre), agregada por dia, semana ou mês — útil para gráficos de evolução."""
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        if not data_inicio or not data_fim:
+            hoje = datetime.now(SP_TZ).date()
+            data_fim = data_fim or hoje.isoformat()
+            data_inicio = data_inicio or (hoje - timedelta(days=29)).isoformat()
+
+        trunc_map = {"dia": "day", "semana": "week", "mes": "month"}
+        trunc_unit = trunc_map.get(_normalize_text(granularidade), "day")
+
+        params: List[object] = [condominio_id, data_inicio, data_fim]
+        torre_frag = ""
+        if torre_id:
+            torre_frag = " AND p.torre_id = %s"
+            params.append(torre_id)
+
+        sql = f"""
+            SELECT
+                date_trunc('{trunc_unit}', p.data_postagem AT TIME ZONE 'America/Sao_Paulo')::date AS periodo,
+                COUNT(*) AS total_postagens,
+                COUNT(*) FILTER (WHERE sv.nome_status = 'aprovada') AS aprovadas,
+                COALESCE(SUM(cr.pontos_base) FILTER (WHERE sv.nome_status = 'aprovada'), 0) AS pontos_estimados
+            FROM postagens p
+            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            WHERE p.condominio_id = %s
+              AND {POSTAGEM_BUSINESS_DATE_SQL} >= %s::date
+              AND {POSTAGEM_BUSINESS_DATE_SQL} <= %s::date
+              {torre_frag}
+            GROUP BY periodo
+            ORDER BY periodo ASC;
+        """
+
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+
+        serie = [
+            {
+                "periodo": str(r[0]),
+                "total_postagens": r[1],
+                "aprovadas": r[2],
+                "pontos_estimados": r[3],
+            }
+            for r in rows
+        ]
+
+        return {
+            "status": "ok",
+            "condominio_id": condominio_id,
+            "torre_id": torre_id,
+            "granularidade": granularidade,
+            "periodo": {"data_inicio": data_inicio, "data_fim": data_fim},
+            "serie": serie,
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
+
+# Tool: resumo_confianca_usuario
+class ResumoConfiancaArgs(BaseModel):
+    usuario_id: int = Field(..., description="ID do usuário.")
+
+@tool("resumo_confianca_usuario", args_schema=ResumoConfiancaArgs)
+def resumo_confianca_usuario(usuario_id: int) -> dict:
+    """Retorna o nível de confiança, trust score e histórico de validações/denúncias de um usuário dentro do seu condomínio."""
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT
+                nc.nome_nivel, nc.peso_voto,
+                uc.trust_score, uc.postagens_validadas_sem_contestacao,
+                uc.denuncias_realizadas, uc.denuncias_procedentes, uc.taxa_acerto_denuncias,
+                uc.condominio_id, uc.data_entrada
+            FROM usuarios_condominios uc
+            JOIN niveis_confianca nc ON nc.id_nivel_confianca = uc.nivel_confianca_id
+            WHERE uc.usuario_id = %s AND uc.aprovado = true
+            ORDER BY uc.data_entrada DESC
+            LIMIT 1;
+            """,
+            (usuario_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return {"status": "error", "message": "Nenhum vínculo aprovado encontrado para este usuário."}
+
+        return {
+            "status": "ok",
+            "usuario_id": usuario_id,
+            "condominio_id": row[7],
+            "nivel_confianca": row[0],
+            "peso_voto": row[1],
+            "trust_score": float(row[2]),
+            "postagens_validadas_sem_contestacao": row[3],
+            "denuncias_realizadas": row[4],
+            "denuncias_procedentes": row[5],
+            "taxa_acerto_denuncias": float(row[6]) if row[6] is not None else None,
+            "membro_desde": str(row[8]),
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
+
+# Tool: desempenho_quizzes_condominio
+class DesempenhoQuizzesArgs(BaseModel):
+    condominio_id: int = Field(..., description="ID do condomínio.")
+    torre_id: Optional[int] = Field(default=None, description="Filtra por torre.")
+    data_inicio: Optional[str] = Field(default=None, description="Data inicial local (YYYY-MM-DD), por data de conclusão.")
+    data_fim: Optional[str] = Field(default=None, description="Data final local (YYYY-MM-DD), por data de conclusão.")
+    periodo: Optional[str] = Field(default=None, description="Atalho: hoje | semana | mes | mes_anterior | ano.")
+
+@tool("desempenho_quizzes_condominio", args_schema=DesempenhoQuizzesArgs)
+def desempenho_quizzes_condominio(
+    condominio_id: int,
+    torre_id: Optional[int] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    periodo: Optional[str] = None,
+) -> dict:
+    """Resumo do engajamento educacional (quizzes) de um condomínio: tentativas concluídas, taxa de aprovação e pontos de recompensa distribuídos."""
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        data_inicio, data_fim = _resolve_periodo(periodo, data_inicio, data_fim)
+
+        params: List[object] = [condominio_id]
+        frag = _date_filter_fragment(
+            "(tq.concluido_em AT TIME ZONE 'America/Sao_Paulo')::date", data_inicio, data_fim, params
+        )
+        torre_frag = ""
+        if torre_id:
+            torre_frag = " AND tq.torre_id = %s"
+            params.append(torre_id)
+
+        cur.execute(
+            f"""
+            SELECT
+                COUNT(*) AS total_tentativas,
+                COUNT(*) FILTER (WHERE tq.aprovado = true) AS aprovadas,
+                COUNT(DISTINCT tq.usuario_id) AS moradores_participantes,
+                COALESCE(SUM(q.pontos_recompensa) FILTER (WHERE tq.aprovado = true), 0) AS pontos_distribuidos
+            FROM tentativas_quiz tq
+            JOIN quizzes q ON q.id_quiz = tq.quiz_id
+            WHERE tq.condominio_id = %s
+              AND tq.concluido_em IS NOT NULL
+              {frag}
+              {torre_frag};
+            """,
+            tuple(params)
+        )
+        row = cur.fetchone()
+        total = row[0]
+        aprovadas = row[1]
+
+        return {
+            "status": "ok",
+            "condominio_id": condominio_id,
+            "torre_id": torre_id,
+            "periodo": {"data_inicio": data_inicio, "data_fim": data_fim},
+            "total_tentativas_concluidas": total,
+            "aprovadas": aprovadas,
+            "taxa_aprovacao": round((aprovadas / total * 100), 2) if total else 0.0,
+            "moradores_participantes": row[2],
+            "pontos_distribuidos": row[3],
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
+
+# Tool: listar_postagens (consulta livre, catch-all)
+class ListarPostagensArgs(BaseModel):
+    usuario_id: Optional[int] = Field(default=None, description="Filtra por usuário.")
+    condominio_id: Optional[int] = Field(default=None, description="Filtra por condomínio.")
+    torre_id: Optional[int] = Field(default=None, description="Filtra por torre.")
+    categoria_id: Optional[int] = Field(default=None, description="Filtra por categoria (id).")
+    categoria_nome: Optional[str] = Field(default=None, description="Filtra por categoria (nome).")
+    status_nome: Optional[str] = Field(default=None, description="Filtra por status: aprovada | em_analise | reprovada.")
+    data_inicio: Optional[str] = Field(default=None, description="Data inicial local (YYYY-MM-DD).")
+    data_fim: Optional[str] = Field(default=None, description="Data final local (YYYY-MM-DD).")
+    periodo: Optional[str] = Field(default=None, description="Atalho: hoje | semana | mes | mes_anterior | ano.")
+    limite: int = Field(default=50, description="Máximo de registros retornados.")
+
+
+@tool("listar_postagens", args_schema=ListarPostagensArgs)
+def listar_postagens(
+    usuario_id: Optional[int] = None,
+    condominio_id: Optional[int] = None,
+    torre_id: Optional[int] = None,
+    categoria_id: Optional[int] = None,
+    categoria_nome: Optional[str] = None,
+    status_nome: Optional[str] = None,
+    data_inicio: Optional[str] = None,
+    data_fim: Optional[str] = None,
+    periodo: Optional[str] = None,
+    limite: int = 50,
+) -> dict:
+    """Lista postagens de reciclagem com filtros livres (usuário, condomínio, torre, categoria, status, período). Use para perguntas analíticas específicas não cobertas pelas outras ferramentas."""
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        data_inicio, data_fim = _resolve_periodo(periodo, data_inicio, data_fim)
+
+        resolved_categoria_id = _resolve_categoria_id(cur, categoria_id, categoria_nome)
+        if categoria_nome and not categoria_id and not resolved_categoria_id:
+            return {"status": "error", "message": f"Categoria '{categoria_nome}' não encontrada."}
+
+        resolved_status_id = _resolve_status_validacao_id(cur, status_nome)
+        if status_nome and not resolved_status_id:
+            return {"status": "error", "message": f"Status '{status_nome}' não reconhecido. Use aprovada, em_analise ou reprovada."}
+
+        sql = """
+            SELECT
+                p.id_postagem, p.usuario_id, u.nome_usuario, p.condominio_id,
+                p.torre_id, t.nome_torre, cr.nome_categoria, cr.pontos_base,
+                sv.nome_status, p.saldo_confianca, p.data_postagem
+            FROM postagens p
+            JOIN usuarios u ON u.id_usuario = p.usuario_id
+            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            LEFT JOIN torres t ON t.id_torre = p.torre_id
+            WHERE 1=1
+        """
+        params: List[object] = []
+
+        if usuario_id:
+            sql += " AND p.usuario_id = %s"
+            params.append(usuario_id)
+
+        if condominio_id:
+            sql += " AND p.condominio_id = %s"
+            params.append(condominio_id)
+
+        if torre_id:
+            sql += " AND p.torre_id = %s"
+            params.append(torre_id)
+
+        if resolved_categoria_id:
+            sql += " AND p.categoria_id = %s"
+            params.append(resolved_categoria_id)
+
+        if resolved_status_id:
+            sql += " AND p.status_validacao_id = %s"
+            params.append(resolved_status_id)
+
+        sql += _date_filter_fragment(POSTAGEM_BUSINESS_DATE_SQL, data_inicio, data_fim, params)
+
+        sql += " ORDER BY p.data_postagem DESC LIMIT %s"
+        params.append(limite)
+
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+
+        items = [
+            {
+                "id_postagem": r[0],
+                "usuario_id": r[1],
+                "usuario_nome": r[2],
+                "condominio_id": r[3],
+                "torre_id": r[4],
+                "torre_nome": r[5],
+                "categoria_nome": r[6],
+                "pontos_base": r[7],
+                "status": r[8],
+                "saldo_confianca": r[9],
+                "data_postagem": str(r[10]),
+            }
+            for r in rows
+        ]
+
+        return {
+            "status": "ok",
+            "count": len(items),
+            "periodo": {"data_inicio": data_inicio, "data_fim": data_fim},
+            "items": items,
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
 TOOLS = [material_mais_reciclado,
     resumo_reciclagem_condominio,
-    
+    resumo_reciclagem_morador,
+    comparar_torres,
+    comparar_periodos,
+    taxa_aprovacao_postagens,
+    evolucao_reciclagem_periodo,
+    resumo_confianca_usuario,
+    desempenho_quizzes_condominio,
+    listar_postagens,
 ]
