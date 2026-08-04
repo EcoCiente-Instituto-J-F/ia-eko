@@ -30,6 +30,7 @@ load_dotenv(dotenv_path=".env")
 # =========================================================
 # MODELOS
 # =========================================================
+
 gemini_flash = os.getenv("GEMINI_FLASH")
 groq_llama = os.getenv("GROQ_LLAMA")
 

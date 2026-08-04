@@ -33,4 +33,3 @@ def generate(prompt: str, api_key: str = Depends(verify_api_key)):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro no fluxo de agentes: {str(e)}")
-    

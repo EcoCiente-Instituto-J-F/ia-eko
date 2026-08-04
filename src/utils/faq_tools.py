@@ -21,8 +21,8 @@ PDF_PATH = os.getenv("PDF_PATH", "FAQ_assessor_v1.1.pdf")
 def faq_retriver(question: str):
     """Use esta ferramenta para buscar informações e responder dúvidas no FAQ da assessoria."""
     #leitura do doc
-    google_api_key=os.getenv("GOOGLE_API_KEY")
-    model =os.getenv("GEMINI_EMBEDDING")
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    model = os.getenv("GEMINI_EMBEDDING")
 
     loader = PyPDFLoader(PDF_PATH)
     docs = loader.load()
