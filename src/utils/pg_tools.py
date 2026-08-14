@@ -12,6 +12,16 @@ Perfis atendidos por essas ferramentas (conforme mapeamento agente x perfil):
 - Síndico residencial / síndico comercial -> visão macro (condomínio, torres)
 - Morador residencial / usuário comercial -> visão micro (individual)
 
+Simulação "e se" (simular_projecao_reciclagem / simular_torre_no_ritmo_da_lider
+/ ritmo_diario_torres): chamam as functions fn_projecao_reciclagem e
+fn_ritmo_diario_torres (ver ecociente_simulacao_e_se.sql). A lógica de
+projeção fica no banco (PL/pgSQL), não em Python — evita duplicar regra de
+negócio entre a function e a tool.
+
+Nomenclatura de tabelas alinhada a ecociente_schema.sql:
+tb_ (entidades), tb_lkp_ (domínios/lookups), tb_rel_ (relacionamentos N:N
+ou vínculos com atributos).
+
 Todas as ferramentas são somente leitura: quem cria/edita postagens,
 votos, agendamentos etc. é a aplicação, não o chatbot.
 """
@@ -141,7 +151,7 @@ def _resolve_categoria_id(cur, categoria_id: Optional[int], categoria_nome: Opti
     alvo = _normalize_text(categoria_nome)
     alvo = aliases.get(alvo, alvo)
 
-    cur.execute("SELECT id_categoria, nome_categoria FROM categorias_residuos;")
+    cur.execute("SELECT id_categoria, nome_categoria FROM tb_lkp_categorias_residuos;")
     rows = cur.fetchall()
 
     for cid, nome in rows:
@@ -171,7 +181,7 @@ def _resolve_status_validacao_id(cur, status_nome: Optional[str]) -> Optional[in
     alvo = aliases.get(alvo, alvo)
 
     cur.execute(
-        "SELECT id_status_validacao FROM status_validacoes_postagens WHERE nome_status = %s LIMIT 1;",
+        "SELECT id_status_validacao FROM tb_lkp_status_validacoes_postagens WHERE nome_status = %s LIMIT 1;",
         (alvo,)
     )
     row = cur.fetchone()
@@ -183,13 +193,13 @@ def _resolve_contexto_usuario(cur, usuario_id: int) -> dict:
     Descobre o vínculo do usuário com condomínio/torre:
       1) síndico -> condomínio sob sua gestão (sem torre específica)
       2) morador / usuário comercial -> unidade -> torre + condomínio
-      3) fallback -> vínculo aprovado mais recente em usuarios_condominios
+      3) fallback -> vínculo aprovado mais recente em tb_rel_usuarios_condominios
     """
     cur.execute(
         """
         SELECT c.id_condominio, NULL::integer AS torre_id, 'sindico' AS papel
-        FROM sindicos s
-        JOIN condominios c ON c.sindico_id = s.id_sindico
+        FROM tb_sindicos s
+        JOIN tb_condominios c ON c.sindico_id = s.id_sindico
         WHERE s.usuario_id = %s
         LIMIT 1;
         """,
@@ -202,8 +212,8 @@ def _resolve_contexto_usuario(cur, usuario_id: int) -> dict:
     cur.execute(
         """
         SELECT u.condominio_id, u.torre_id, 'morador' AS papel
-        FROM moradores m
-        JOIN unidades u ON u.id_unidade = m.unidade_id
+        FROM tb_moradores m
+        JOIN tb_unidades u ON u.id_unidade = m.unidade_id
         WHERE m.usuario_id = %s
         LIMIT 1;
         """,
@@ -216,7 +226,7 @@ def _resolve_contexto_usuario(cur, usuario_id: int) -> dict:
     cur.execute(
         """
         SELECT condominio_id, NULL::integer, 'vinculo_generico'
-        FROM usuarios_condominios
+        FROM tb_rel_usuarios_condominios
         WHERE usuario_id = %s AND aprovado = true
         ORDER BY data_entrada DESC
         LIMIT 1;
@@ -267,9 +277,9 @@ def material_mais_reciclado(
                 cr.nome_categoria,
                 COUNT(*) AS total_postagens,
                 COALESCE(SUM(cr.pontos_base), 0) AS pontos_estimados
-            FROM postagens p
-            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
-            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            FROM tb_postagens p
+            JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
             WHERE 1=1
         """
         params: List[object] = []
@@ -354,8 +364,8 @@ def resumo_reciclagem_condominio(
         cur.execute(
             f"""
             SELECT sv.nome_status, COUNT(*)
-            FROM postagens p
-            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            FROM tb_postagens p
+            JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
             WHERE p.condominio_id = %s {frag_status}
             GROUP BY sv.nome_status;
             """,
@@ -372,9 +382,9 @@ def resumo_reciclagem_condominio(
         cur.execute(
             f"""
             SELECT cr.nome_categoria, COUNT(*) AS qtd, COALESCE(SUM(cr.pontos_base), 0) AS pontos
-            FROM postagens p
-            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
-            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            FROM tb_postagens p
+            JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
             WHERE p.condominio_id = %s AND sv.nome_status = 'aprovada' {frag_top}
             GROUP BY cr.nome_categoria
             ORDER BY qtd DESC
@@ -397,9 +407,9 @@ def resumo_reciclagem_condominio(
         cur.execute(
             f"""
             SELECT COALESCE(SUM(cr.pontos_base), 0)
-            FROM postagens p
-            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
-            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            FROM tb_postagens p
+            JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
             WHERE p.condominio_id = %s AND sv.nome_status = 'aprovada' {frag_pts};
             """,
             tuple(params_pts)
@@ -410,8 +420,8 @@ def resumo_reciclagem_condominio(
         cur.execute(
             """
             SELECT COUNT(*)
-            FROM moradores m
-            JOIN unidades u ON u.id_unidade = m.unidade_id
+            FROM tb_moradores m
+            JOIN tb_unidades u ON u.id_unidade = m.unidade_id
             WHERE u.condominio_id = %s;
             """,
             (condominio_id,)
@@ -423,7 +433,7 @@ def resumo_reciclagem_condominio(
         cur.execute(
             f"""
             SELECT COUNT(DISTINCT p.usuario_id)
-            FROM postagens p
+            FROM tb_postagens p
             WHERE p.condominio_id = %s {frag_part};
             """,
             tuple(params_part)
@@ -443,10 +453,10 @@ def resumo_reciclagem_condominio(
                 COUNT(p.id_postagem) AS total_postagens,
                 COUNT(*) FILTER (WHERE sv.nome_status = 'aprovada') AS aprovadas,
                 COALESCE(SUM(cr.pontos_base) FILTER (WHERE sv.nome_status = 'aprovada'), 0) AS pontos_estimados
-            FROM torres t
-            LEFT JOIN postagens p ON p.torre_id = t.id_torre {frag_torres_on}
-            LEFT JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
-            LEFT JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            FROM tb_torres t
+            LEFT JOIN tb_postagens p ON p.torre_id = t.id_torre {frag_torres_on}
+            LEFT JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            LEFT JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
             WHERE t.condominio_id = %s
             GROUP BY t.id_torre, t.nome_torre
             ORDER BY total_postagens DESC;
@@ -532,8 +542,8 @@ def resumo_reciclagem_morador(
         cur.execute(
             f"""
             SELECT sv.nome_status, COUNT(*)
-            FROM postagens p
-            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            FROM tb_postagens p
+            JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
             WHERE p.usuario_id = %s {frag_status}
             GROUP BY sv.nome_status;
             """,
@@ -548,9 +558,9 @@ def resumo_reciclagem_morador(
         cur.execute(
             f"""
             SELECT COALESCE(SUM(cr.pontos_base), 0)
-            FROM postagens p
-            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
-            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            FROM tb_postagens p
+            JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
             WHERE p.usuario_id = %s AND sv.nome_status = 'aprovada' {frag_pts};
             """,
             tuple(params_pts)
@@ -563,8 +573,8 @@ def resumo_reciclagem_morador(
         cur.execute(
             f"""
             SELECT cr.nome_categoria, COUNT(*) AS qtd
-            FROM postagens p
-            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            FROM tb_postagens p
+            JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
             WHERE p.usuario_id = %s {frag_fav}
             GROUP BY cr.nome_categoria
             ORDER BY qtd DESC
@@ -583,9 +593,9 @@ def resumo_reciclagem_morador(
                 SELECT COALESCE(AVG(pontos_por_usuario.pontos), 0)
                 FROM (
                     SELECT p.usuario_id, COALESCE(SUM(cr.pontos_base), 0) AS pontos
-                    FROM postagens p
-                    JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
-                    JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+                    FROM tb_postagens p
+                    JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
+                    JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
                     WHERE {campo} = %s AND sv.nome_status = 'aprovada' {frag}
                     GROUP BY p.usuario_id
                 ) AS pontos_por_usuario;
@@ -666,18 +676,18 @@ def comparar_torres(
                 t.nome_torre,
                 (
                     SELECT COUNT(*)
-                    FROM moradores m
-                    JOIN unidades u ON u.id_unidade = m.unidade_id
+                    FROM tb_moradores m
+                    JOIN tb_unidades u ON u.id_unidade = m.unidade_id
                     WHERE u.torre_id = t.id_torre
                 ) AS moradores_total,
                 COUNT(DISTINCT p.usuario_id) AS moradores_participantes,
                 COUNT(p.id_postagem) AS postagens_total,
                 COUNT(*) FILTER (WHERE sv.nome_status = 'aprovada') AS postagens_aprovadas,
                 COALESCE(SUM(cr.pontos_base) FILTER (WHERE sv.nome_status = 'aprovada'), 0) AS pontos_estimados
-            FROM torres t
-            LEFT JOIN postagens p ON p.torre_id = t.id_torre {frag_on}
-            LEFT JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
-            LEFT JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            FROM tb_torres t
+            LEFT JOIN tb_postagens p ON p.torre_id = t.id_torre {frag_on}
+            LEFT JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            LEFT JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
             WHERE t.condominio_id = %s
         """
         params.append(condominio_id)
@@ -778,9 +788,9 @@ def comparar_periodos(
                     COUNT(*) FILTER (WHERE sv.nome_status = 'aprovada') AS aprovadas,
                     COALESCE(SUM(cr.pontos_base) FILTER (WHERE sv.nome_status = 'aprovada'), 0) AS pontos,
                     COUNT(DISTINCT p.usuario_id) AS participantes
-                FROM postagens p
-                JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
-                JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+                FROM tb_postagens p
+                JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+                JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
                 WHERE p.condominio_id = %s
                   AND {POSTAGEM_BUSINESS_DATE_SQL} >= %s::date
                   AND {POSTAGEM_BUSINESS_DATE_SQL} <= %s::date
@@ -866,7 +876,7 @@ def taxa_aprovacao_postagens(
         if modo == "torre":
             group_id_field = "t.id_torre"
             group_name_field = "t.nome_torre"
-            join_extra = "LEFT JOIN torres t ON t.id_torre = p.torre_id"
+            join_extra = "LEFT JOIN tb_torres t ON t.id_torre = p.torre_id"
         else:
             group_id_field = "cr.id_categoria"
             group_name_field = "cr.nome_categoria"
@@ -880,9 +890,9 @@ def taxa_aprovacao_postagens(
                 COUNT(*) FILTER (WHERE sv.nome_status = 'aprovada') AS aprovadas,
                 COUNT(*) FILTER (WHERE sv.nome_status = 'em_analise') AS em_analise,
                 COUNT(*) FILTER (WHERE sv.nome_status = 'reprovada') AS reprovadas
-            FROM postagens p
-            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
-            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            FROM tb_postagens p
+            JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
             {join_extra}
             WHERE 1=1
         """
@@ -937,7 +947,6 @@ def taxa_aprovacao_postagens(
         _safe_close(cur, conn)
 
 
-
 # Tool: evolucao_reciclagem_periodo
 
 
@@ -984,9 +993,9 @@ def evolucao_reciclagem_periodo(
                 COUNT(*) AS total_postagens,
                 COUNT(*) FILTER (WHERE sv.nome_status = 'aprovada') AS aprovadas,
                 COALESCE(SUM(cr.pontos_base) FILTER (WHERE sv.nome_status = 'aprovada'), 0) AS pontos_estimados
-            FROM postagens p
-            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
-            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            FROM tb_postagens p
+            JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
             WHERE p.condominio_id = %s
               AND {POSTAGEM_BUSINESS_DATE_SQL} >= %s::date
               AND {POSTAGEM_BUSINESS_DATE_SQL} <= %s::date
@@ -1026,8 +1035,8 @@ def evolucao_reciclagem_periodo(
         _safe_close(cur, conn)
 
 
-
 # Tool: resumo_confianca_usuario
+
 class ResumoConfiancaArgs(BaseModel):
     usuario_id: int = Field(..., description="ID do usuário.")
 
@@ -1047,8 +1056,8 @@ def resumo_confianca_usuario(usuario_id: int) -> dict:
                 uc.trust_score, uc.postagens_validadas_sem_contestacao,
                 uc.denuncias_realizadas, uc.denuncias_procedentes, uc.taxa_acerto_denuncias,
                 uc.condominio_id, uc.data_entrada
-            FROM usuarios_condominios uc
-            JOIN niveis_confianca nc ON nc.id_nivel_confianca = uc.nivel_confianca_id
+            FROM tb_rel_usuarios_condominios uc
+            JOIN tb_lkp_niveis_confianca nc ON nc.id_nivel_confianca = uc.nivel_confianca_id
             WHERE uc.usuario_id = %s AND uc.aprovado = true
             ORDER BY uc.data_entrada DESC
             LIMIT 1;
@@ -1124,8 +1133,8 @@ def desempenho_quizzes_condominio(
                 COUNT(*) FILTER (WHERE tq.aprovado = true) AS aprovadas,
                 COUNT(DISTINCT tq.usuario_id) AS moradores_participantes,
                 COALESCE(SUM(q.pontos_recompensa) FILTER (WHERE tq.aprovado = true), 0) AS pontos_distribuidos
-            FROM tentativas_quiz tq
-            JOIN quizzes q ON q.id_quiz = tq.quiz_id
+            FROM tb_tentativas_quiz tq
+            JOIN tb_quizzes q ON q.id_quiz = tq.quiz_id
             WHERE tq.condominio_id = %s
               AND tq.concluido_em IS NOT NULL
               {frag}
@@ -1208,11 +1217,11 @@ def listar_postagens(
                 p.id_postagem, p.usuario_id, u.nome_usuario, p.condominio_id,
                 p.torre_id, t.nome_torre, cr.nome_categoria, cr.pontos_base,
                 sv.nome_status, p.saldo_confianca, p.data_postagem
-            FROM postagens p
-            JOIN usuarios u ON u.id_usuario = p.usuario_id
-            JOIN categorias_residuos cr ON cr.id_categoria = p.categoria_id
-            JOIN status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
-            LEFT JOIN torres t ON t.id_torre = p.torre_id
+            FROM tb_postagens p
+            JOIN tb_usuarios u ON u.id_usuario = p.usuario_id
+            JOIN tb_lkp_categorias_residuos cr ON cr.id_categoria = p.categoria_id
+            JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+            LEFT JOIN tb_torres t ON t.id_torre = p.torre_id
             WHERE 1=1
         """
         params: List[object] = []
@@ -1278,6 +1287,210 @@ def listar_postagens(
         _safe_close(cur, conn)
 
 
+# ============================================================================
+# Tools de SIMULAÇÃO "E SE" (chamam fn_ritmo_diario_torres / fn_projecao_reciclagem
+# — ver ecociente_simulacao_e_se.sql. A regra de projeção fica no banco.)
+# ============================================================================
+
+# Tool: ritmo_diario_torres
+
+class RitmoDiarioTorresArgs(BaseModel):
+    condominio_id: int = Field(..., description="ID do condomínio.")
+    dias_baseline: int = Field(default=30, description="Janela (em dias) usada para calcular o ritmo diário atual de cada torre.")
+
+
+@tool("ritmo_diario_torres", args_schema=RitmoDiarioTorresArgs)
+def ritmo_diario_torres(condominio_id: int, dias_baseline: int = 30) -> dict:
+    """
+    Ritmo diário (pontos/dia) de cada torre de um condomínio, na janela de
+    baseline informada, e o quanto cada torre está atrás da torre líder em
+    percentual. Use para responder "qual torre está reciclando melhor?" ou
+    como insumo para simular_torre_no_ritmo_da_lider.
+    """
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT * FROM fn_ritmo_diario_torres(%s, %s);",
+            (condominio_id, dias_baseline)
+        )
+        rows = cur.fetchall()
+
+        torres = [
+            {
+                "torre_id": r[0],
+                "torre_nome": r[1],
+                "pontos_baseline": r[2],
+                "media_diaria": float(r[3]) if r[3] is not None else 0.0,
+                "percentual_vs_lider": float(r[4]) if r[4] is not None else None,
+            }
+            for r in rows
+        ]
+
+        return {
+            "status": "ok",
+            "condominio_id": condominio_id,
+            "dias_baseline": dias_baseline,
+            "torres": torres,
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
+# Tool: simular_projecao_reciclagem (motor genérico da simulação "e se")
+
+class SimularProjecaoArgs(BaseModel):
+    condominio_id: int = Field(..., description="ID do condomínio.")
+    torre_id: Optional[int] = Field(default=None, description="Se informado, simula apenas essa torre. Se omitido, simula o condomínio inteiro.")
+    dias_baseline: int = Field(default=30, description="Janela (em dias) usada para calcular o ritmo diário atual.")
+    percentual_incremento: float = Field(default=0.0, description="Incremento percentual simulado sobre o ritmo atual. Ex.: 15 = 'e se reciclasse 15% a mais'.")
+    meta_pontos: Optional[int] = Field(default=None, description="Meta absoluta de pontos acumulados. Se informado, retorna dias necessários (atual vs. simulado) para atingi-la.")
+    horizonte_dias: int = Field(default=30, description="Nº de dias futuros para projetar o total de pontos (atual vs. simulado), independente de haver meta.")
+
+
+@tool("simular_projecao_reciclagem", args_schema=SimularProjecaoArgs)
+def simular_projecao_reciclagem(
+    condominio_id: int,
+    torre_id: Optional[int] = None,
+    dias_baseline: int = 30,
+    percentual_incremento: float = 0.0,
+    meta_pontos: Optional[int] = None,
+    horizonte_dias: int = 30,
+) -> dict:
+    """
+    Simulação "e se": projeta pontos futuros e/ou dias necessários para
+    atingir uma meta, comparando o ritmo diário atual (média de pontos
+    aprovados/dia na janela de baseline) com um ritmo simulado
+    (+percentual_incremento). Escopo: condomínio inteiro ou uma torre
+    específica. Exemplos de uso: "se o condomínio reciclasse 15% a mais,
+    quando bateria 5000 pontos?", "quantos pontos teríamos em 60 dias no
+    ritmo atual?".
+    """
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT * FROM fn_projecao_reciclagem(%s, %s, %s, %s, %s, %s);",
+            (condominio_id, torre_id, dias_baseline, percentual_incremento, meta_pontos, horizonte_dias)
+        )
+        row = cur.fetchone()
+        if not row:
+            return {"status": "error", "message": "Não foi possível calcular a projeção para os parâmetros informados."}
+
+        return {
+            "status": "ok",
+            "condominio_id": condominio_id,
+            "torre_id": torre_id,
+            "pontos_acumulados_total": row[0],
+            "dias_baseline_utilizados": row[1],
+            "media_diaria_atual": float(row[2]) if row[2] is not None else 0.0,
+            "media_diaria_simulada": float(row[3]) if row[3] is not None else 0.0,
+            "percentual_incremento_aplicado": float(row[4]),
+            "meta_pontos": row[5],
+            "dias_para_meta_atual": row[6],
+            "dias_para_meta_simulado": row[7],
+            "horizonte_dias": row[8],
+            "projecao_pontos_atual": row[9],
+            "projecao_pontos_simulado": row[10],
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
+# Tool: simular_torre_no_ritmo_da_lider (composição: benchmark + projeção)
+
+class SimularTorreLiderancaArgs(BaseModel):
+    condominio_id: int = Field(..., description="ID do condomínio.")
+    torre_id: int = Field(..., description="Torre a simular no ritmo da torre líder do condomínio.")
+    dias_baseline: int = Field(default=30, description="Janela (em dias) usada para calcular os ritmos atuais.")
+    meta_pontos: Optional[int] = Field(default=None, description="Meta absoluta de pontos acumulados da torre. Se informado, retorna dias necessários (ritmo atual vs. ritmo da líder) para atingi-la.")
+    horizonte_dias: int = Field(default=30, description="Nº de dias futuros para projetar o total de pontos da torre (ritmo atual vs. ritmo da líder).")
+
+
+@tool("simular_torre_no_ritmo_da_lider", args_schema=SimularTorreLiderancaArgs)
+def simular_torre_no_ritmo_da_lider(
+    condominio_id: int,
+    torre_id: int,
+    dias_baseline: int = 30,
+    meta_pontos: Optional[int] = None,
+    horizonte_dias: int = 30,
+) -> dict:
+    """
+    Simulação "e se a torre X reciclasse no ritmo da torre líder do
+    condomínio?". Primeiro calcula o quanto a torre está atrás da líder
+    (fn_ritmo_diario_torres) e usa esse gap percentual como incremento na
+    projeção (fn_projecao_reciclagem). Se a torre já for a líder, o gap é
+    0% e a projeção reflete apenas o ritmo atual dela.
+    """
+    conn = None
+    cur = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT * FROM fn_ritmo_diario_torres(%s, %s);",
+            (condominio_id, dias_baseline)
+        )
+        rows = cur.fetchall()
+        alvo = next((r for r in rows if r[0] == torre_id), None)
+        if not alvo:
+            return {"status": "error", "message": f"Torre {torre_id} não encontrada no condomínio {condominio_id}."}
+
+        gap_percentual = float(alvo[4]) if alvo[4] is not None else 0.0
+
+        cur.execute(
+            "SELECT * FROM fn_projecao_reciclagem(%s, %s, %s, %s, %s, %s);",
+            (condominio_id, torre_id, dias_baseline, gap_percentual, meta_pontos, horizonte_dias))
+        proj = cur.fetchone()
+        if not proj:
+            return {"status": "error", "message": "Não foi possível calcular a projeção para os parâmetros informados."}
+
+        return {
+            "status": "ok",
+            "condominio_id": condominio_id,
+            "torre_id": torre_id,
+            "torre_nome": alvo[1],
+            "gap_percentual_vs_lider": gap_percentual,
+            "pontos_acumulados_total": proj[0],
+            "dias_baseline_utilizados": proj[1],
+            "media_diaria_atual": float(proj[2]) if proj[2] is not None else 0.0,
+            "media_diaria_no_ritmo_da_lider": float(proj[3]) if proj[3] is not None else 0.0,
+            "meta_pontos": proj[5],
+            "dias_para_meta_ritmo_atual": proj[6],
+            "dias_para_meta_ritmo_lider": proj[7],
+            "horizonte_dias": proj[8],
+            "projecao_pontos_ritmo_atual": proj[9],
+            "projecao_pontos_ritmo_lider": proj[10],
+        }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        _safe_close(cur, conn)
+
+
 TOOLS = [material_mais_reciclado,
     resumo_reciclagem_condominio,
     resumo_reciclagem_morador,
@@ -1288,4 +1501,7 @@ TOOLS = [material_mais_reciclado,
     resumo_confianca_usuario,
     desempenho_quizzes_condominio,
     listar_postagens,
+    ritmo_diario_torres,
+    simular_projecao_reciclagem,
+    simular_torre_no_ritmo_da_lider,
 ]
