@@ -1,0 +1,4 @@
+# Providers externos opcionais. A aplicação NÃO depende deles para funcionar.
+-r requirements.txt
+langchain-groq>=1.0,<2
+langchain-google-genai>=3.0,<5
