@@ -15,6 +15,24 @@ class HealthService:
         self.sessions = sessions
         self.rag = rag
 
+    async def check(self) -> dict[str, str]:
+        services = await self.sessions.health()
+        services["rag"] = self.rag.health()
+        services["llm"] = await self._llm_health()
+        services["postgres"] = await self._postgres_health()
+        return services
+
+    async def _llm_health(self) -> str:
+        if self.settings.llm_provider == "mock":
+            return "mock"
+        if self.settings.llm_provider != "ollama":
+            return "configured"
+        try:
+            async with httpx.AsyncClient(timeout=1.5) as client:
+                response = await client.get(f"{self.settings.ollama_base_url.rstrip('/')}/api/tags")
+            return "ok" if response.is_success else "error"
+        except Exception:
+            return "error"
 
     async def _postgres_health(self) -> str:
         if not self.settings.postgres_url:
