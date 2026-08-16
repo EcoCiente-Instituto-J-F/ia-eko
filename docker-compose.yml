@@ -1,0 +1,27 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - .env
+
+    environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-mock}
+
+      MONGODB_URI: ${MONGODB_URI}
+      POSTGRES_URL: ${POSTGRES_URL}
+
+      REDIS_URL: redis://host.docker.internal:6379/0
+
+      ENABLE_EXTERNAL_SOURCE: ${ENABLE_EXTERNAL_SOURCE:-false}
+
+      STORAGE_MODE: external
+      ALLOW_STORAGE_FALLBACK: "false"
+
+      A2A_PUBLIC_URL: http://127.0.0.1:8000/a2a/jsonrpc/
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
