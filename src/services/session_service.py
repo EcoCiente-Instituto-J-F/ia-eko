@@ -10,11 +10,8 @@ from redis.asyncio import Redis
 from pymongo import AsyncMongoClient
 
 from src.core.config import Settings
-from prometheus_client import Histogram
+from src.observability.metrics import DB_LATENCY
 
-DB_LATENCY = Histogram(
-    "ecociente_db_duration_seconds", "Latência de banco/cache", ["backend", "operation"]
-)
 
 class SessionError(RuntimeError):
     pass

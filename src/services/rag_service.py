@@ -5,27 +5,17 @@ import math
 import re
 import time
 from pathlib import Path
-from pydantic import BaseModel
+from typing import Iterable
 
 import httpx
 from bs4 import BeautifulSoup
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from prometheus_client import Histogram
 
+from src.api.schemas.common import SourceResponse
 from src.core.config import Settings
-
-RAG_LATENCY = Histogram("ecociente_rag_duration_seconds", "Latência do RAG", ["operation"])
-
-
-class SourceResponse(BaseModel):
-    title: str
-    source: str
-    chunk: int | None = None
-    url: str | None = None
-
-
+from src.observability.metrics import RAG_LATENCY
 
 
 class HashEmbeddings(Embeddings):
