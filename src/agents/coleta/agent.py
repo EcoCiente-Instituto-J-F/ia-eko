@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 import re
 import unicodedata
 
 from src.agents.coleta.tools import CalendarTools
-from src.integrations.calendar.client import CalendarApiError, CalendarEvent
+from src.integrations.calendar.schemas import Agendamento, CalendarToolError
+from src.integrations.mcp.client import CalendarMcpClient, McpToolProtocolError
 from src.security.policies import action_for_route, authorize_action
-from src.services.calendar_service import CalendarService
 from src.shared.context import UserContext
 
 AGENT_NAME = "coletas"
@@ -21,14 +21,15 @@ class CollectionAgentResult:
 
 
 class CollectionAgent:
-    """Especialista determinístico para operações apoiadas pela API externa.
+    """Especialista de Coletas orientado a capacidades MCP reais.
 
-    A decisão de acesso é repetida aqui como defesa em profundidade; a API
-    externa continua sendo a única fonte de agenda e status.
+    A API Java anexada implementa somente consultas GET. Solicitações de criar,
+    confirmar ou alterar agendamentos são respondidas como indisponíveis nesta
+    versão, sem fabricar chamadas REST.
     """
 
-    def __init__(self, calendar: CalendarService):
-        self.tools = CalendarTools(calendar)
+    def __init__(self, mcp_client: CalendarMcpClient):
+        self.tools = CalendarTools(mcp_client)
 
     async def run(self, message: str, user: UserContext) -> CollectionAgentResult:
         action = action_for_route("coletas", message)
@@ -36,194 +37,175 @@ class CollectionAgent:
         if not decision.allowed:
             return CollectionAgentResult(decision.message, action)
 
-        try:
-            if action == "coleta_confirmar":
-                return await self._confirm(message, user)
-            if action == "coleta_agenda":
-                return await self._agenda(user)
-            if action == "coleta_gerenciar":
-                return await self._manage(message, user)
-            return await self._next_collection(user)
-        except CalendarApiError:
-            if action == "coleta_consultar" or action == "coleta_agenda":
-                return CollectionAgentResult(
-                    "Não consegui consultar o calendário neste momento. Tente novamente mais tarde.",
-                    action,
-                )
+        if action in {"coleta_confirmar", "coleta_gerenciar"}:
             return CollectionAgentResult(
-                "Não foi possível confirmar o resultado da atualização no calendário. Consulte a agenda antes de tentar novamente.",
+                "A API de calendário disponível nesta versão permite apenas consultar agendamentos e a próxima coleta; "
+                "criação, confirmação e alteração ainda não possuem endpoint implementado.",
                 action,
             )
 
-    async def _next_collection(self, user: UserContext) -> CollectionAgentResult:
-        if user.condominio_id is None:
+        try:
+            if self._should_list(message, action):
+                return await self._list(message, user, action)
+            return await self._next(message, user, action)
+        except McpToolProtocolError:
             return CollectionAgentResult(
-                "Não encontrei um condomínio vinculado à sua conta para consultar a próxima coleta.",
-                "coleta_consultar",
+                "Não consegui executar a consulta ao calendário pelo MCP neste momento.",
+                action,
             )
-        event = await self.tools.next_collection(user)
-        if event is None:
-            return CollectionAgentResult(
-                "Não encontrei nenhuma coleta cadastrada para esse condomínio no calendário.",
-                "coleta_consultar",
-            )
-        return CollectionAgentResult(
-            f"A próxima coleta está {event.status} para {self._format_event(event)}.",
-            "coleta_consultar",
+
+    async def _next(self, message: str, user: UserContext, action: str) -> CollectionAgentResult:
+        filters = self._filters_from_message(message, include_status=False)
+        result = await self.tools.next_collection(user, **filters)
+        if not result.ok:
+            return CollectionAgentResult(self._error_message(result.error), action)
+        if not result.found or result.agendamento is None:
+            return CollectionAgentResult("Não há próxima coleta encontrada para os filtros informados.", action)
+        return CollectionAgentResult(f"Sua próxima coleta é {self._format_agendamento(result.agendamento)}.", action)
+
+    async def _list(self, message: str, user: UserContext, action: str) -> CollectionAgentResult:
+        filters = self._filters_from_message(message, include_status=True)
+        result = await self.tools.list_collections(user, **filters)
+        if not result.ok:
+            return CollectionAgentResult(self._error_message(result.error), action)
+        if not result.agendamentos:
+            return CollectionAgentResult("Não encontrei agendamentos para os filtros informados.", action)
+        items = "; ".join(self._format_agendamento(item) for item in result.agendamentos[:5])
+        suffix = ""
+        if result.total_elements > len(result.agendamentos):
+            suffix = f" Página {result.page + 1} de {max(result.total_pages, 1)}; {result.total_elements} agendamentos no total."
+        return CollectionAgentResult(f"Agendamentos encontrados: {items}.{suffix}", action)
+
+    @classmethod
+    def _should_list(cls, message: str, action: str) -> bool:
+        if action == "coleta_agenda":
+            return True
+        text = cls._normalize(message)
+        markers = (
+            "liste",
+            "listar",
+            "quais",
+            "agenda",
+            "tem coleta",
+            "ha coleta",
+            "confirmad",
+            "agendad",
+            "cancelad",
+            "realizad",
+            "recusad",
+            "recorrente",
+            "entre segunda e sexta",
+        )
+        return any(marker in text for marker in markers)
+
+    @classmethod
+    def _filters_from_message(cls, message: str, *, include_status: bool) -> dict[str, object]:
+        text = cls._normalize(message)
+        filters: dict[str, object] = {}
+
+        if include_status:
+            status_markers = {
+                "confirmad": "CONFIRMADO",
+                "agendad": "AGENDADO",
+                "recusad": "RECUSADO",
+                "cancelad": "CANCELADO",
+                "realizad": "REALIZADO",
+            }
+            for marker, value in status_markers.items():
+                if marker in text:
+                    filters["status"] = value
+                    break
+
+        if "nao recorrente" in text or "sem recorrencia" in text:
+            filters["possui_recorrencia"] = False
+        elif "recorrente" in text or "recorrencia" in text:
+            filters["possui_recorrencia"] = True
+
+        cooperativa_id = cls._id_from_message(message, "cooperativa")
+        if cooperativa_id is not None:
+            filters["cooperativa_id"] = cooperativa_id
+        condominio_id = cls._id_from_message(message, "condomínio|condominio")
+        if condominio_id is not None:
+            filters["condominio_id"] = condominio_id
+
+        period = cls._period_from_message(message)
+        if period is not None:
+            filters["data_inicio"] = period[0].isoformat()
+            filters["data_fim"] = period[1].isoformat()
+        return filters
+
+    @classmethod
+    def _period_from_message(cls, message: str) -> tuple[datetime, datetime] | None:
+        text = cls._normalize(message)
+        today = date.today()
+        if "amanha" in text:
+            target = today + timedelta(days=1)
+            return datetime.combine(target, time.min), datetime.combine(target, time.max)
+        if "hoje" in text:
+            return datetime.combine(today, time.min), datetime.combine(today, time.max)
+        if "entre segunda e sexta" in text or "de segunda a sexta" in text:
+            monday = today - timedelta(days=today.weekday())
+            friday = monday + timedelta(days=4)
+            if friday < today:
+                monday += timedelta(days=7)
+                friday += timedelta(days=7)
+            start_day = max(today, monday)
+            return datetime.combine(start_day, time.min), datetime.combine(friday, time.max)
+
+        parsed = cls._message_date(message)
+        if parsed is not None:
+            return datetime.combine(parsed, time.min), datetime.combine(parsed, time.max)
+        return None
+
+    @staticmethod
+    def _id_from_message(message: str, label_pattern: str) -> int | None:
+        match = re.search(rf"(?:{label_pattern})\s*#?(\d+)", message, re.IGNORECASE)
+        return int(match.group(1)) if match else None
+
+    @staticmethod
+    def _message_date(message: str) -> date | None:
+        match = re.search(r"\b(\d{2})/(\d{2})/(\d{4})\b", message)
+        if match:
+            try:
+                return date(int(match.group(3)), int(match.group(2)), int(match.group(1)))
+            except ValueError:
+                return None
+        match = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", message)
+        if match:
+            try:
+                return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _format_agendamento(item: Agendamento) -> str:
+        end = f" até {item.data_fim.strftime('%H:%M')}" if item.data_fim else ""
+        recurrence = "recorrente" if item.possui_recorrencia else "avulsa"
+        return (
+            f"#{item.id} em {item.data_inicio.strftime('%d/%m/%Y às %H:%M')}{end}, "
+            f"condomínio {item.condominio_id}, cooperativa {item.cooperativa_id}, "
+            f"status {item.status_agendamento.value}, {recurrence}"
         )
 
-    async def _agenda(self, user: UserContext) -> CollectionAgentResult:
-        if user.cooperativa_id is None:
-            return CollectionAgentResult(
-                "Não consegui identificar a cooperativa vinculada à sua conta para consultar a agenda.",
-                "coleta_agenda",
-            )
-        events = await self.tools.cooperative_schedule(user)
-        future = [event for event in events if event.data >= date.today()]
-        if not future:
-            return CollectionAgentResult("Não há compromissos futuros cadastrados para a cooperativa.", "coleta_agenda")
-        summary = "; ".join(self._format_event(event) for event in sorted(future, key=self._event_sort_key)[:5])
-        return CollectionAgentResult(f"Próximos compromissos da cooperativa: {summary}.", "coleta_agenda")
-
-    async def _confirm(self, message: str, user: UserContext) -> CollectionAgentResult:
-        if user.cooperativa_id is None:
-            return CollectionAgentResult(
-                "Não consegui identificar a cooperativa vinculada à sua conta para confirmar a passagem.",
-                "coleta_confirmar",
-            )
-        events = await self.tools.cooperative_schedule(user)
-        event = self._find_target_event(events, message)
-        if event is None:
-            return CollectionAgentResult(
-                "Para confirmar a passagem, informe a data do compromisso ou o identificador do evento no calendário.",
-                "coleta_confirmar",
-            )
-        if not event.event_id:
-            return CollectionAgentResult(
-                "O calendário não retornou o identificador do compromisso; não consigo confirmar a passagem com segurança.",
-                "coleta_confirmar",
-            )
-        updated = await self.tools.confirm(user, event.event_id)
-        return CollectionAgentResult(
-            f"Passagem confirmada para {self._format_event(updated)}.",
-            "coleta_confirmar",
-        )
-
-    async def _manage(self, message: str, user: UserContext) -> CollectionAgentResult:
-        text = self._normalize(message)
-        if any(marker in text for marker in ("remarcar", "alterar", "mudar")):
-            return await self._reschedule(message, user)
-        return await self._schedule(message, user)
-
-    async def _reschedule(self, message: str, user: UserContext) -> CollectionAgentResult:
-        event_id = self._event_id_from_message(message)
-        data = self._date_from_message(message)
-        if not event_id or not data:
-            return CollectionAgentResult(
-                "Para alterar uma coleta, informe o identificador do evento e a nova data no formato DD/MM/AAAA.",
-                "coleta_gerenciar",
-            )
-        updated = await self.tools.reschedule(user, event_id, data)
-        return CollectionAgentResult(f"Coleta atualizada para {self._format_event(updated)}.", "coleta_gerenciar")
-
-    async def _schedule(self, message: str, user: UserContext) -> CollectionAgentResult:
-        cooperativa_id = self._cooperative_id_from_message(message)
-        recorrente = "recorrente" in self._normalize(message)
-        data = self._date_from_message(message)
-        dia_semana = self._weekday_from_message(message)
-        if cooperativa_id is None:
-            return CollectionAgentResult(
-                "Para agendar a coleta, informe o identificador da cooperativa no formato “cooperativa 123”.",
-                "coleta_gerenciar",
-            )
-        if recorrente and dia_semana is None:
-            return CollectionAgentResult(
-                "Qual dia da semana você deseja usar no agendamento recorrente?",
-                "coleta_gerenciar",
-            )
-        if not recorrente and data is None:
-            return CollectionAgentResult(
-                "Qual data deseja usar no agendamento avulso? Informe no formato DD/MM/AAAA.",
-                "coleta_gerenciar",
-            )
-        event = await self.tools.schedule(
-            user,
-            cooperativa_id=cooperativa_id,
-            data=data,
-            dia_semana=dia_semana,
-            recorrente=recorrente,
-        )
-        kind = "recorrente" if recorrente else "avulsa"
-        return CollectionAgentResult(f"Coleta {kind} criada para {self._format_event(event)}.", "coleta_gerenciar")
+    @staticmethod
+    def _error_message(error: CalendarToolError | None) -> str:
+        if error is None:
+            return "Não foi possível interpretar a resposta do calendário."
+        messages = {
+            "authentication_required": "Não há credencial autenticada disponível para consultar o calendário.",
+            "unauthorized": "Sua sessão não foi aceita pela API de calendário; autentique-se novamente.",
+            "forbidden": "Seu perfil não possui autorização para essa consulta no calendário.",
+            "bad_request": "Os filtros enviados ao calendário não foram aceitos.",
+            "unavailable": "O serviço de calendário está indisponível neste momento.",
+            "not_configured": "A integração com a API de calendário ainda não está configurada neste ambiente.",
+            "not_found": "O recurso solicitado não foi encontrado no calendário.",
+            "protocol_error": "A API de calendário respondeu fora do contrato esperado.",
+        }
+        return messages.get(error.code, "Não consegui consultar o calendário neste momento.")
 
     @staticmethod
     def _normalize(value: str) -> str:
         value = unicodedata.normalize("NFD", value.lower())
         value = "".join(char for char in value if unicodedata.category(char) != "Mn")
         return " ".join(value.split())
-
-    @staticmethod
-    def _event_sort_key(event: CalendarEvent) -> tuple[date, str]:
-        return event.data, event.horario
-
-    @staticmethod
-    def _format_event(event: CalendarEvent) -> str:
-        return f"{event.data.strftime('%d/%m/%Y')} às {event.horario}, com {event.cooperativa} ({event.status})"
-
-    @classmethod
-    def _find_target_event(cls, events: list[CalendarEvent], message: str) -> CalendarEvent | None:
-        event_id = cls._event_id_from_message(message)
-        if event_id:
-            return next((event for event in events if event.event_id == event_id), None)
-        text = cls._normalize(message)
-        target_date = date.today() + timedelta(days=1) if "amanha" in text else cls._message_date(message)
-        if target_date:
-            matches = [event for event in events if event.data == target_date]
-            return matches[0] if len(matches) == 1 else None
-        future = [event for event in events if event.data >= date.today()]
-        return future[0] if len(future) == 1 else None
-
-    @staticmethod
-    def _event_id_from_message(message: str) -> str | None:
-        match = re.search(r"(?:evento|compromisso)\s*(?:n[ºo]\.?\s*)?#?([A-Za-z0-9-]+)", message, re.IGNORECASE)
-        return match.group(1) if match else None
-
-    @staticmethod
-    def _cooperative_id_from_message(message: str) -> int | None:
-        match = re.search(r"cooperativa\s*#?(\d+)", message, re.IGNORECASE)
-        return int(match.group(1)) if match else None
-
-    @classmethod
-    def _date_from_message(cls, message: str) -> str | None:
-        parsed = cls._message_date(message)
-        return parsed.isoformat() if parsed else None
-
-    @staticmethod
-    def _message_date(message: str) -> date | None:
-        match = re.search(r"\b(\d{2})/(\d{2})/(\d{4})\b", message)
-        if not match:
-            match = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", message)
-            if match:
-                try:
-                    return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
-                except ValueError:
-                    return None
-            return None
-        try:
-            return date(int(match.group(3)), int(match.group(2)), int(match.group(1)))
-        except ValueError:
-            return None
-
-    @classmethod
-    def _weekday_from_message(cls, message: str) -> str | None:
-        text = cls._normalize(message)
-        weekdays = {
-            "segunda": "segunda-feira",
-            "terca": "terça-feira",
-            "quarta": "quarta-feira",
-            "quinta": "quinta-feira",
-            "sexta": "sexta-feira",
-            "sabado": "sábado",
-            "domingo": "domingo",
-        }
-        return next((value for key, value in weekdays.items() if key in text), None)
