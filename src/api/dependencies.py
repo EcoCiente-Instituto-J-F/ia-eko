@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Header, HTTPException, Request, status
 
 from src.agents.graph import EcoGraphRuntime
 from src.core.config import Settings
@@ -27,16 +27,17 @@ async def get_user_context(
     x_condominio_id: int | None = Header(None, alias="X-Condominio-Id", gt=0),
     x_permissoes: str | None = Header(None, alias="X-Permissoes"),
 ) -> UserContext:
-    """Resolve a identidade via API externa antes de qualquer agente.
+    """Resolve a identidade antes de qualquer agente.
 
-    Em ambiente de teste/migração, headers legados só são aceitos quando
-    ``ALLOW_LEGACY_IDENTITY_HEADERS=true``. Em produção o token é obrigatório.
+    Headers sintéticos só existem para testes automatizados e exigem APP_ENV=test
+    e ALLOW_TEST_IDENTITY_HEADERS=true. Em qualquer outro ambiente, Bearer token
+    validado pela API de autenticação é obrigatório.
     """
     settings = get_settings(request)
-    if settings.allow_legacy_identity_headers and x_usuario_id is not None:
+    if settings.environment == "test" and settings.allow_test_identity_headers and x_usuario_id is not None:
         profile = normalize_profile(x_perfil)
         if profile is None:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Perfil legado não reconhecido.")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Perfil de teste não reconhecido.")
         permissions = [item.strip() for item in (x_permissoes or "").split(",") if item.strip()]
         return UserContext(
             user_id=x_usuario_id,
@@ -75,7 +76,7 @@ async def _body_token(request: Request) -> str | None:
     """Lê token do contrato ``POST /chat`` sem registrá-lo ou repassá-lo ao grafo."""
     try:
         body = await request.json()
-    except Exception:
+    except (ValueError, UnicodeDecodeError):
         return None
     token = body.get("token") if isinstance(body, dict) else None
     return token.strip() if isinstance(token, str) and token.strip() else None
