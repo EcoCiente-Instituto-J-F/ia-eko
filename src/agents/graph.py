@@ -15,7 +15,7 @@ from src.core.config import Settings
 from src.observability.metrics import AGENT_LATENCY, GUARDRAIL_BLOCKED, JUDGE_REJECTED, safe_label
 from src.security.policies import authorize_route
 from src.services.rag_service import RAGService
-from src.services.calendar_service import CalendarService
+from src.integrations.mcp.client import CalendarMcpClient
 from src.services.session_service import SessionService
 from src.services.memory_summarizer_service import MemorySummarizerService
 from src.security.guardrails import sanitize_output, validate_input
@@ -29,14 +29,14 @@ class EcoGraphRuntime:
         settings: Settings,
         sessions: SessionService,
         rag: RAGService,
-        calendar: CalendarService | None = None,
+        calendar_mcp: CalendarMcpClient,
     ):
         self.settings = settings
         self.sessions = sessions
         self.rag = rag
         self.agents = AgentSuite(settings)
         self.memory_summarizer = MemorySummarizerService(settings, model=self.agents.model)
-        self.collection_agent = CollectionAgent(calendar or CalendarService(None))
+        self.collection_agent = CollectionAgent(calendar_mcp)
         self.graph = self._build_graph()
 
     @staticmethod
