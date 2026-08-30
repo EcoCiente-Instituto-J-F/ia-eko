@@ -22,8 +22,7 @@ class AccessDecision:
     message: str = ""
 
 
-# O perfil é o teto de acesso. Claims explícitos de permissões refinam ações
-# sensíveis, mas nunca concedem um agente que o perfil não possui
+# Claims explicitos de permissões refinam acoes sensíveis, nunca concedem um agente que o perfil não possui
 ROLE_AGENT_ACCESS: dict[str, set[str]] = {
     USUARIO_COMUM: {"faq", "educacional"},
     SINDICO_RESIDENCIAL: {"faq", "educacional", "analytics", "coletas"},
