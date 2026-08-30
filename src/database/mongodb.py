@@ -29,7 +29,6 @@ class MongoDatabase:
             return
         await self.database.sessoes.create_index("session_id", unique=True)
         await self.database.sessoes.create_index("expira_em", expireAfterSeconds=0)
-        await self.database.memoria_longo_prazo.create_index("usuario_id", unique=True)
 
     async def ping(self) -> bool:
         if self.client is None:
