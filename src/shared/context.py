@@ -6,12 +6,12 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class UserContext:
-    """Identidade autenticada compartilhada no estado do LangGraph.
+    """Identidade autenticada recebida na borda da aplicação.
 
-    O token é mantido para chamadas autenticadas às integrações quando for
-    necessário, mas nunca deve ser incluído em prompts, memória, logs ou
-    respostas HTTP. Use :meth:`for_agent` para montar contexto destinado ao
-    modelo.
+    A instância original pode carregar o token apenas enquanto a request está
+    na camada de infraestrutura. Antes do LangGraph, use :meth:`without_token`;
+    prompts usam somente :meth:`for_agent`. O token nunca deve entrar em
+    checkpoints, memória, logs ou respostas HTTP.
     """
 
     user_id: int
@@ -30,6 +30,16 @@ class UserContext:
             "permissoes": list(self.permissoes),
             "cooperativa_id": self.cooperativa_id,
         }
+
+    def without_token(self) -> "UserContext":
+        """Cópia segura para estado/checkpoints e prompts internos."""
+        return UserContext(
+            user_id=self.user_id,
+            perfil=self.perfil,
+            condominio_id=self.condominio_id,
+            permissoes=list(self.permissoes),
+            cooperativa_id=self.cooperativa_id,
+        )
 
     def has_permission(self, permission: str) -> bool:
         normalized = permission.strip().lower()
