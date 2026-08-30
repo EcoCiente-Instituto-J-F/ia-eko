@@ -6,8 +6,7 @@ from src.api.schemas.common import SourceResponse
 
 
 class ChatRequest(BaseModel):
-    # usuario_id é mantido temporariamente para compatibilidade; a identidade
-    # efetiva sempre vem do token validado pela API externa.
+    # Se informado, usuario_id deve coincidir com a identidade autenticada.
     usuario_id: int | None = Field(default=None, gt=0)
     token: str | None = Field(default=None, min_length=1, repr=False)
     session_id: str | None = Field(default=None, min_length=8, max_length=80)

@@ -13,7 +13,6 @@ AGENTS = [
     AgentInfo(name="educacional", description="RAG sobre reciclagem, separação, resíduos, compostagem e sustentabilidade."),
     AgentInfo(name="coletas", description="Consulta e atualiza agenda exclusivamente pela API externa de calendário, respeitando o perfil autenticado."),
     AgentInfo(name="juiz_saida", description="Verifica fundamentação, privacidade, uso de ferramentas e alucinação antes da resposta."),
-    AgentInfo(name="consolidador_memoria", description="Resume conteúdo útil de sessões para memória de longo prazo sem guardar todo o histórico bruto."),
 ]
 
 

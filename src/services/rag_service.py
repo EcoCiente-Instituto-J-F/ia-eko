@@ -5,7 +5,6 @@ import math
 import re
 import time
 from pathlib import Path
-from typing import Iterable
 
 import httpx
 from bs4 import BeautifulSoup
@@ -82,7 +81,7 @@ class RAGService:
                         )
                     )
                     self.external_loaded = True
-            except Exception as exc:
+            except (httpx.HTTPError, TimeoutError, OSError, ValueError) as exc:
                 self.external_error = f"{type(exc).__name__}: {exc}"[:300]
 
         splitter = RecursiveCharacterTextSplitter(

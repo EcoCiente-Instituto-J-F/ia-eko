@@ -12,12 +12,8 @@ REQUEST_LATENCY = Histogram(
 AGENT_LATENCY = Histogram(
     "ecociente_agent_duration_seconds", "Latência por agente/nó", ["agent"]
 )
-RAG_LATENCY = Histogram(
-    "ecociente_rag_duration_seconds", "Latência do RAG", ["operation"])
-
-TOOL_LATENCY = Histogram(
-    "ecociente_tool_duration_seconds", "Latência de ferramentas", ["tool"])
-
+RAG_LATENCY = Histogram("ecociente_rag_duration_seconds", "Latência do RAG", ["operation"])
+TOOL_LATENCY = Histogram("ecociente_tool_duration_seconds", "Latência de ferramentas", ["tool"])
 DB_LATENCY = Histogram(
     "ecociente_db_duration_seconds", "Latência de banco/cache", ["backend", "operation"]
 )

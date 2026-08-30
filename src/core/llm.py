@@ -54,3 +54,35 @@ def build_chat_model(settings: Settings) -> Any | None:
         f"LLM_PROVIDER={provider!r} inválido. Use ollama, mock, groq ou gemini."
     )
 
+
+def build_embeddings(settings: Settings) -> Any:
+    provider = settings.embedding_provider.lower()
+    if provider == "mock":
+        from src.services.rag_service import HashEmbeddings
+
+        return HashEmbeddings()
+    if provider in {"ollama", "local"}:
+        from langchain_ollama import OllamaEmbeddings
+
+        return OllamaEmbeddings(
+            base_url=settings.ollama_base_url,
+            model=settings.embedding_model,
+        )
+    if provider == "gemini":
+        if not settings.gemini_api_key:
+            raise ProviderConfigurationError(
+                "GEMINI_API_KEY é obrigatória quando EMBEDDING_PROVIDER=gemini."
+            )
+        try:
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+        except ImportError as exc:
+            raise ProviderConfigurationError(
+                "Instale requirements-optional.txt para usar embeddings Gemini."
+            ) from exc
+        return GoogleGenerativeAIEmbeddings(
+            google_api_key=settings.gemini_api_key,
+            model=settings.embedding_model,
+        )
+    raise ProviderConfigurationError(
+        f"EMBEDDING_PROVIDER={provider!r} inválido. Use ollama/local, mock ou gemini."
+    )
