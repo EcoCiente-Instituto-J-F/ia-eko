@@ -5,6 +5,7 @@ import time
 from src.agents.graph import EcoGraphRuntime
 from src.api.schemas.chat import ChatRequest, ChatResponse, JudgeDecisionResponse
 from src.observability.metrics import AGENTS_CALLED
+from src.security.request_context import authenticated_request_context
 from src.services.session_service import SessionService
 from src.shared.context import UserContext
 
@@ -31,21 +32,23 @@ class ChatService:
         async with self.sessions.conversation_guard(session_id):
             await self.sessions.append_message(session_id, user_id, "user", request.mensagem)
 
-            state = await self.graph.invoke(
-                {
-                    "user_context": user_context,
-                    "usuario_id": user_id,
-                    "session_id": session_id,
-                    "request_id": request_id,
-                    "mensagem": request.mensagem,
-                    "perfil": user_context.perfil,
-                    "condominio_id": user_context.condominio_id,
-                    "agents_called": [],
-                    "latencies_ms": {},
-                    "sources": [],
-                    "corrections": 0,
-                }
-            )
+            safe_user_context = user_context.without_token()
+            with authenticated_request_context(user_context.token):
+                state = await self.graph.invoke(
+                    {
+                        "user_context": safe_user_context,
+                        "usuario_id": user_id,
+                        "session_id": session_id,
+                        "request_id": request_id,
+                        "mensagem": request.mensagem,
+                        "perfil": safe_user_context.perfil,
+                        "condominio_id": safe_user_context.condominio_id,
+                        "agents_called": [],
+                        "latencies_ms": {},
+                        "sources": [],
+                        "corrections": 0,
+                    }
+                )
             answer = state.get("answer", "Não foi possível gerar uma resposta validada.")
             await self.sessions.append_message(session_id, user_id, "assistant", answer)
             await self.sessions.update_last_route(
