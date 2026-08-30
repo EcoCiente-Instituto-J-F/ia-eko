@@ -73,7 +73,7 @@ def _bearer_token(authorization: str | None) -> str | None:
 
 
 async def _body_token(request: Request) -> str | None:
-    """Lê token do contrato ``POST /chat`` sem registrá-lo ou repassá-lo ao grafo."""
+    """Lê token do contrato ``POST /chat`` sem registrá-lo ou inseri-lo no estado LangGraph."""
     try:
         body = await request.json()
     except (ValueError, UnicodeDecodeError):
