@@ -69,3 +69,25 @@ async def benchmark(base_url: str, requests: int, concurrency: int, token: str |
     print(f"error_rate={failures / requests:.4%}")
     print(f"throughput_rps={requests / elapsed:.2f}")
     print(f"elapsed_s={elapsed:.2f}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Benchmark da API EcoCiente em modo mock/local.")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--requests", type=int, default=100)
+    parser.add_argument("--concurrency", type=int, default=10)
+    parser.add_argument(
+        "--token",
+        default=None,
+        help="Bearer token real. Sem token, o benchmark exige APP_ENV=test e ALLOW_TEST_IDENTITY_HEADERS=true.",
+    )
+    args = parser.parse_args()
+    if args.requests <= 0 or args.concurrency <= 0:
+        parser.error("requests e concurrency devem ser > 0")
+    if not args.token:
+        print("AVISO: usando identidade sintética; a API precisa estar em APP_ENV=test com ALLOW_TEST_IDENTITY_HEADERS=true.")
+    asyncio.run(benchmark(args.base_url, args.requests, args.concurrency, args.token))
+
+
+if __name__ == "__main__":
+    main()
