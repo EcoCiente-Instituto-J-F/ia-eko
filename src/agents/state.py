@@ -15,6 +15,8 @@ class EcoState(TypedDict, total=False):
     perfil: str
     condominio_id: int | None
     memory_context: dict[str, Any]
+    memory_compaction_needed: bool
+    memory_compaction_error: str | None
     route: str
     agent: str
     answer: str
