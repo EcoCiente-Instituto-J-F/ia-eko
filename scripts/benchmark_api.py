@@ -19,6 +19,32 @@ def percentile(values: list[float], p: float) -> float:
     return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
 
+async def run_one(
+    client: httpx.AsyncClient,
+    url: str,
+    user_id: int,
+    token: str | None,
+) -> tuple[float, bool]:
+    started = time.perf_counter()
+    headers = (
+        {"Authorization": f"Bearer {token}"}
+        if token
+        else {"X-Usuario-Id": str(user_id), "X-Perfil": "morador"}
+    )
+    payload = {
+        "session_id": None,
+        "mensagem": "Como separar resíduos recicláveis?",
+    }
+    if not token:
+        payload["usuario_id"] = user_id
+    try:
+        response = await client.post(url, headers=headers, json=payload)
+        ok = response.is_success
+    except httpx.HTTPError:
+        ok = False
+    return (time.perf_counter() - started) * 1000, ok
+
+
 async def benchmark(base_url: str, requests: int, concurrency: int, token: str | None) -> None:
     url = f"{base_url.rstrip('/')}/api/v1/chat"
     semaphore = asyncio.Semaphore(concurrency)
@@ -43,4 +69,3 @@ async def benchmark(base_url: str, requests: int, concurrency: int, token: str |
     print(f"error_rate={failures / requests:.4%}")
     print(f"throughput_rps={requests / elapsed:.2f}")
     print(f"elapsed_s={elapsed:.2f}")
- 
