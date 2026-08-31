@@ -190,4 +190,5 @@ ROTEADOR_PROMPT_COMPLETO = (
     ROTEADOR_SHOT_5      + "\n\n" +
     ROTEADOR_SHOT_6      + "\n\n" +
     ROTEADOR_SHOTS_CUT
+
 )
