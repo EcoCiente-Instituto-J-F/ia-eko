@@ -48,14 +48,29 @@ class PostgresDatabase:
     @contextmanager
     def connection(self) -> Iterator[Any]:
         current = self._pool
+
         if current is None:
-            raise PostgresUnavailable("PostgreSQL não está configurado ou o pool não foi inicializado.")
+            raise PostgresUnavailable(
+                "PostgreSQL não está configurado ou o pool não foi inicializado."
+            )
+
         conn = current.getconn()
+
         try:
-            conn.set_session(readonly=True, autocommit=True)
+            conn.set_session(
+                readonly=True,
+                autocommit=True
+            )
+
             yield conn
-        finally:
+
+        except Exception:
+            current.putconn(conn, close=True)
+            raise
+
+        else:
             current.putconn(conn)
+
 
     def fetch_all(self, query: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         with self.connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:

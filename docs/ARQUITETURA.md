@@ -41,3 +41,17 @@ O antigo módulo PostgreSQL monolítico foi dividido por responsabilidade:
 - `common.py`: filtros temporais e tratamento de falhas de banco.
 
 Ranking Redis é compartilhado em `src/tools/shared/rankings.py`.
+
+## Memória conversacional
+
+A memória fica no mesmo documento MongoDB da sessão. O fluxo do LangGraph é determinístico:
+
+```text
+START → guardrail_entrada → memoria → verificar_compactacao
+                                      ├─ <=20 → orquestrador
+                                      └─ >20 → resumir_memoria → orquestrador
+```
+
+A contagem considera somente `user` e `assistant`. Até `MEMORY_MAX_MESSAGES=20`, o histórico permanece integral. Ao ultrapassar o limite, `MemorySummarizerService` recebe o resumo anterior e somente a parte antiga que sairá da janela; o novo resumo substitui o anterior e `MEMORY_KEEP_RECENT_MESSAGES=6` mensagens continuam integrais. O prompt está em `src/prompts/shared/memory.py`.
+
+A sessão persiste `memory_summary`, `messages` e `memory_revision`. A revisão implementa compare-and-set no MongoDB para impedir overwrite por compactações concorrentes; um lock por sessão preserva a ordem dentro do processo. Falhas do resumidor são registradas e não alteram resumo nem mensagens. A memória é isolada por `session_id` + `usuario_id`; não existe consolidação global por usuário usada pelos agentes.

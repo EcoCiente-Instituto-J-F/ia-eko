@@ -1,3 +1,7 @@
+from datetime import datetime
+
+_data_hora_fmt = datetime.now().strftime("%d/%m/%Y, %H:%M:%S")
+
 # ==============================================================================
 # PERSONA SISTEMA — bloco compartilhado repassado aos agentes que falam com o usuário
 # (Juiz de Entrada, Memória, Juiz de Saída e Consolidador de Memória nunca respondem
@@ -28,5 +32,3 @@ Data e hora atual (fornecida pelo sistema): {_data_hora_fmt}
 Use esta referência para interpretar "hoje", "esta semana", "este mês", calcular datas relativas
 de coleta e delimitar períodos em consultas analíticas.
 """
-
-

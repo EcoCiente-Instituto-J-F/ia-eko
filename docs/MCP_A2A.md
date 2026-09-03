@@ -4,12 +4,12 @@
 
 - **Servidor:** `src/integrations/mcp/server.py`
 - **Cliente:** `src/integrations/mcp/client.py`
-- **Tool:** `consultar_guia_ecociente(pergunta, limite)`
-- **Entrada:** pergunta textual e limite 1–5.
-- **Saída:** trechos reais de `data/FAQ_KNOWLEDGE_BASE.md`, com `title`, `source`, `excerpt` e flag `evidence_found`.
-- **LLM:** nenhum; a integração funciona mesmo sem API generativa.
+- **Tools:** `consultar_guia_ecociente`, `listar_agendamentos_coleta` e `buscar_proxima_coleta`.
+- **Conhecimento local:** `consultar_guia_ecociente(pergunta, limite)` retorna trechos de `data/FAQ_KNOWLEDGE_BASE.md` sem LLM.
+- **Calendário:** as duas tools de calendário consomem exclusivamente os endpoints GET realmente implementados pela `ds-calendario-api`.
+- **Segurança:** token, `usuario_id` e `perfil` não fazem parte do schema das tools; entram por contexto autenticado de infraestrutura.
 
-O servidor usa a linha v2 do SDK (`MCPServer`) e o cliente v2 (`Client`).
+O servidor usa a linha v2 do SDK (`MCPServer`) e o cliente v2 (`Client`). O agente Coletas usa o cliente MCP em processo; detalhes HTTP ficam isolados no `CalendarApiClient`. Consulte `docs/MCP.md` e `docs/CALENDAR_API_ENDPOINTS.md`.
 
 ## A2A
 
