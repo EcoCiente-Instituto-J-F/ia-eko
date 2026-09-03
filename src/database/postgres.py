@@ -49,7 +49,10 @@ class PostgresDatabase:
     def connection(self) -> Iterator[Any]:
         current = self._pool
 
-        
+        if current is None:
+            raise PostgresUnavailable(
+                "PostgreSQL não está configurado ou o pool não foi inicializado."
+            )
 
         conn = current.getconn()
 
@@ -65,6 +68,8 @@ class PostgresDatabase:
             current.putconn(conn, close=True)
             raise
 
+        else:
+            current.putconn(conn)
 
 
     def fetch_all(self, query: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
