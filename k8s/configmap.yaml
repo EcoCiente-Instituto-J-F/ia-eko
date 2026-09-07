@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ia-eko-config
+  namespace: ecociente
+  labels:
+    app: ia-eko
+    app.kubernetes.io/name: ia-eko
+    app.kubernetes.io/part-of: ecociente
+data:
+  APP_NAME: "EcoCiente Eko Chatbot"
+  APP_VERSION: "1.9.0"
+  APP_ENV: "development"
+
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  LOG_LEVEL: "INFO"
+
+  LLM_PROVIDER: "mock"
+  EMBEDDING_PROVIDER: "mock"
+
+  KNOWLEDGE_BASE_PATH: "data/FAQ_KNOWLEDGE_BASE.md"
+
+  ENABLE_EXTERNAL_SOURCE: "false"
+
+  STORAGE_MODE: "memory"
+  ALLOW_STORAGE_FALLBACK: "true"
+
+  SESSION_TTL_SECONDS: "1800"
+  MEMORY_MAX_MESSAGES: "20"
+  MEMORY_KEEP_RECENT_MESSAGES: "6"
+
+  JUDGE_MAX_CORRECTIONS: "1"
+
+  RUN_INTEGRATION_TESTS: "false"
+  RUN_CALENDAR_INTEGRATION_TESTS: "false"
+
+  ALLOW_TEST_IDENTITY_HEADERS: "false"
