@@ -39,10 +39,10 @@ A Base de Conhecimento do Agente FAQ do EcoCiente deve permitir que o Agente FAQ
 
 Quando uma funcionalidade aparece apenas como requisito ou idealização, esta base não a apresenta como concluída. Os estados utilizados são:
 
-- **✅ Implementado:** somente quando houver evidência explícita de implementação atual.
-- **🚧 Em desenvolvimento:** quando o material declarar explicitamente que a funcionalidade ou componente está em implementação, construção ou integração no momento.
-- **📋 Planejado / requisito:** quando a funcionalidade está especificada como requisito, fluxo desejado ou arquitetura prevista.
-- **❓ Não confirmado:** quando os materiais não permitem confirmar estado, regra ou permissão.
+- ** Implementado:** somente quando houver evidência explícita de implementação atual.
+- ** Em desenvolvimento:** quando o material declarar explicitamente que a funcionalidade ou componente está em implementação, construção ou integração no momento.
+- ** Planejado / requisito:** quando a funcionalidade está especificada como requisito, fluxo desejado ou arquitetura prevista.
+- ** Não confirmado:** quando os materiais não permitem confirmar estado, regra ou permissão.
 
 ### 1.3 Fontes disponíveis para esta consolidação
 
@@ -177,11 +177,11 @@ O cadastro é requisito para todos os perfis e permite escolher o perfil. O logi
 
 #### Funcionalidades indisponíveis ou não confirmadas
 
-- Analytics individual: **❌ não atribuído ao Usuário Comum** no mapeamento dos agentes.
-- Analytics de condomínio: **❌ não aplicável** porque o Usuário Comum não possui vínculo condominial.
-- gerenciamento de coletas: **❌ não atribuído**.
-- calendário condominial de coleta: **❌ não atribuído no fluxo principal**.
-- ranking de moradores e ranking de torres: **⚠️ inconsistente**. A narrativa e o mapeamento de agentes não atribuem Ranking ao Usuário Comum, mas o requisito “Exibir ranking de usuários” inclui Usuário Comum.
+- Analytics individual: ** não atribuído ao Usuário Comum** no mapeamento dos agentes.
+- Analytics de condomínio: ** não aplicável** porque o Usuário Comum não possui vínculo condominial.
+- gerenciamento de coletas: ** não atribuído**.
+- calendário condominial de coleta: ** não atribuído no fluxo principal**.
+- ranking de moradores e ranking de torres: ** inconsistente**. A narrativa e o mapeamento de agentes não atribuem Ranking ao Usuário Comum, mas o requisito “Exibir ranking de usuários” inclui Usuário Comum.
 
 #### Rankings
 
@@ -215,14 +215,14 @@ O Usuário Comum possui acesso ao conteúdo sobre materiais, busca de conteúdo 
 
 O mapeamento de agentes atribui FAQ ao Usuário Comum. Entretanto, um requisito específico de “Chatbot FAQ” lista usuários residencial, comercial, industrial e síndicos, sem citar Usuário Comum.
 
-**Permissão documental:** ⚠️ Parcial / inconsistente. O fluxo multiagente indica acesso ao FAQ; o requisito de chatbot precisa ser harmonizado.
+**Permissão documental:** Parcial / inconsistente. O fluxo multiagente indica acesso ao FAQ; o requisito de chatbot precisa ser harmonizado.
 
 #### Outros agentes
 
-- FAQ: ⚠️ atribuído no mapeamento, com inconsistência em requisito específico.
-- Educacional: ✅ atribuído.
-- Analytics: ❌ não atribuído.
-- Coletas: ❌ não atribuído.
+- FAQ: atribuído no mapeamento, com inconsistência em requisito específico.
+- Educacional: atribuído.
+- Analytics: não atribuído.
+- Coletas: não atribuído.
 
 #### Exemplos de perguntas do Usuário Comum ao FAQ
 
@@ -272,10 +272,10 @@ Cadastro com escolha de perfil, vínculo por código de condomínio e login com 
 
 #### Funcionalidades indisponíveis ou condicionadas
 
-- Analytics macro do condomínio: **❌ não permitido**; o Morador Residencial possui Analytics individual.
-- gerenciamento de agenda da cooperativa: **❌ não atribuído**.
-- aceitar/recusar solicitações de coleta: **❌ função da Cooperativa**.
-- solicitar coleta: **❓ não confirmado para Morador Residencial**; o requisito atribui solicitação ao Síndico.
+- Analytics macro do condomínio: ** não permitido**; o Morador Residencial possui Analytics individual.
+- gerenciamento de agenda da cooperativa: ** não atribuído**.
+- aceitar/recusar solicitações de coleta: ** função da Cooperativa**.
+- solicitar coleta: ** não confirmado para Morador Residencial**; o requisito atribui solicitação ao Síndico.
 
 #### Rankings
 
@@ -307,11 +307,11 @@ O Morador Residencial está explicitamente associado ao FAQ.
 
 #### Outros agentes
 
-- FAQ: ✅.
-- Educacional: ✅.
-- Analytics: ✅ individual.
-- Ranking: ✅ como domínio/serviço previsto no mapeamento.
-- Coletas: ❌ não atribuído ao fluxo operacional do morador.
+- FAQ: .
+- Educacional: .
+- Analytics: individual.
+- Ranking: como domínio/serviço previsto no mapeamento.
+- Coletas: não atribuído ao fluxo operacional do morador.
 
 #### Exemplos de perguntas do Morador Residencial ao FAQ
 
@@ -359,10 +359,10 @@ Cadastro por perfil e login com e-mail/senha são requisitos gerais.
 
 #### Funcionalidades indisponíveis ou condicionadas
 
-- Analytics macro corporativo: **❌ reservado ao Síndico Comercial**.
-- Ranking de Moradores e Ranking de Torres: **⚠️ não atribuído no fluxo, mas requisito genérico de ranking de usuários inclui o Usuário Comercial**.
-- Coletas operacionais: **⚠️ inconsistente**. O mapeamento de agentes lista Coleta para Usuário Comercial, mas a descrição do agente Coletas afirma que usuário comum, residencial e comercial não terão acesso a esse fluxo.
-- guia de compostagem: **⚠️ inconsistente**. A narrativa do Usuário Comercial inclui compostagem, mas o requisito de guia de compostagem lista apenas Residencial e Usuário Comum.
+- Analytics macro corporativo: ** reservado ao Síndico Comercial**.
+- Ranking de Moradores e Ranking de Torres: ** não atribuído no fluxo, mas requisito genérico de ranking de usuários inclui o Usuário Comercial**.
+- Coletas operacionais: ** inconsistente**. O mapeamento de agentes lista Coleta para Usuário Comercial, mas a descrição do agente Coletas afirma que usuário comum, residencial e comercial não terão acesso a esse fluxo.
+- guia de compostagem: ** inconsistente**. A narrativa do Usuário Comercial inclui compostagem, mas o requisito de guia de compostagem lista apenas Residencial e Usuário Comum.
 
 #### Rankings
 
@@ -376,7 +376,7 @@ O Usuário Comercial possui Analytics individual.
 
 A narrativa do fluxo do Usuário Comercial atribui acesso ao calendário com o dia de coleta da cooperativa. O requisito consolidado de calendário usa a categoria “Residencial, Síndico”, sem esclarecer se “Residencial” exclui Comercial.
 
-**Permissão documental:** ⚠️ acesso previsto na narrativa; harmonização do requisito necessária.
+**Permissão documental:** acesso previsto na narrativa; harmonização do requisito necessária.
 
 #### Coletas
 
@@ -396,10 +396,10 @@ O Usuário Comercial é atendido pelo FAQ.
 
 #### Outros agentes
 
-- FAQ: ✅.
-- Educacional: ✅.
-- Analytics: ✅ individual.
-- Coletas: ⚠️ inconsistente.
+- FAQ: .
+- Educacional: .
+- Analytics: individual.
+- Coletas: inconsistente.
 
 #### Exemplos de perguntas do Usuário Comercial ao FAQ
 
@@ -451,10 +451,10 @@ Cadastro por perfil, vínculo com condomínio e login por e-mail/senha são requ
 
 #### Funcionalidades indisponíveis ou condicionadas
 
-- Analytics de outros condomínios: **❌ não autorizado por qualquer requisito fornecido**.
-- aceitar ou recusar solicitação de coleta: **❌ função da Cooperativa**.
-- gerenciar notificações em nome da cooperativa: **❌ função da Cooperativa**.
-- pontuação e quiz como participante individual: **❓ não definido para Síndico** nos requisitos de quiz/descarte.
+- Analytics de outros condomínios: ** não autorizado por qualquer requisito fornecido**.
+- aceitar ou recusar solicitação de coleta: ** função da Cooperativa**.
+- gerenciar notificações em nome da cooperativa: ** função da Cooperativa**.
+- pontuação e quiz como participante individual: ** não definido para Síndico** nos requisitos de quiz/descarte.
 
 #### Rankings
 
@@ -486,11 +486,11 @@ O Síndico Residencial é atendido pelo FAQ.
 
 #### Outros agentes
 
-- FAQ: ✅.
-- Educacional: ✅.
-- Analytics: ✅ agregado do condomínio.
-- Coletas: ✅.
-- Ranking: ✅.
+- FAQ: .
+- Educacional: .
+- Analytics: agregado do condomínio.
+- Coletas: .
+- Ranking: .
 
 #### Exemplos de perguntas do Síndico Residencial ao FAQ
 
@@ -537,9 +537,9 @@ Cadastro por perfil, vínculo e login por e-mail/senha são requisitos.
 
 #### Funcionalidades indisponíveis ou condicionadas
 
-- Ranking de Moradores: **❌ não atribuído na narrativa do Síndico Comercial**.
-- Ranking de Torres: **❌ não atribuído na narrativa do Síndico Comercial**.
-- Analytics individual: **❌ o perfil usa visão macro corporativa**.
+- Ranking de Moradores: ** não atribuído na narrativa do Síndico Comercial**.
+- Ranking de Torres: ** não atribuído na narrativa do Síndico Comercial**.
+- Analytics individual: ** o perfil usa visão macro corporativa**.
 
 #### Rankings
 
@@ -571,11 +571,11 @@ O Síndico Comercial é atendido pelo FAQ.
 
 #### Outros agentes
 
-- FAQ: ✅.
-- Educacional: ✅.
-- Analytics: ✅ macro corporativo.
-- Coletas: ✅.
-- Ranking residencial: ❌.
+- FAQ: .
+- Educacional: .
+- Analytics: macro corporativo.
+- Coletas: .
+- Ranking residencial: .
 
 #### Exemplos de perguntas do Síndico Comercial ao FAQ
 
@@ -629,10 +629,10 @@ A Cooperativa é um perfil selecionável no cadastro e utiliza login por e-mail/
 
 #### Funcionalidades indisponíveis ou condicionadas
 
-- Analytics individual: **❌ não atribuído**.
-- Analytics de condomínio como agente analítico: **❌ não atribuído**.
-- Ranking de Moradores/Torres: **❌ não atribuído**.
-- conteúdo educacional: **❌ não atribuído no mapeamento de agentes**.
+- Analytics individual: ** não atribuído**.
+- Analytics de condomínio como agente analítico: ** não atribuído**.
+- Ranking de Moradores/Torres: ** não atribuído**.
+- conteúdo educacional: ** não atribuído no mapeamento de agentes**.
 
 #### Rankings
 
@@ -664,10 +664,10 @@ O mapeamento de agentes atribui FAQ à Cooperativa. Um requisito geral de chatbo
 
 #### Outros agentes
 
-- FAQ: ✅.
-- Coletas: ✅.
-- Educacional: ❌ não atribuído.
-- Analytics: ❌ não atribuído.
+- FAQ: .
+- Coletas: .
+- Educacional: não atribuído.
+- Analytics: não atribuído.
 
 #### Exemplos de perguntas da Cooperativa ao FAQ
 
@@ -683,43 +683,43 @@ O mapeamento de agentes atribui FAQ à Cooperativa. Um requisito geral de chatbo
 
 **Categoria:** autorização funcional  
 **Perfis relacionados:** Todos  
-**Status:** consolidado a partir dos fluxos e requisitos; inconsistências preservadas como ⚠️  
+**Status:** consolidado a partir dos fluxos e requisitos; inconsistências preservadas como   
 **Palavras-chave:** permissão, acesso, perfil, matriz, autorização
 
-Legenda: **✅ Permitido** | **❌ Não permitido** | **⚠️ Parcial / condicionado / inconsistente** | **❓ Não definido**
+Legenda: ** Permitido** | ** Não permitido** | ** Parcial / condicionado / inconsistente** | ** Não definido**
 
 | Funcionalidade | Usuário Comum | Morador Residencial | Usuário Comercial | Síndico Residencial | Síndico Comercial | Cooperativa |
 |---|---:|---:|---:|---:|---:|---:|
-| Cadastro e login | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Editar perfil | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Excluir conta | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| FAQ | ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Educacional | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Analytics individual | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Analytics agregado do condomínio | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ |
-| Ranking de Moradores | ⚠️ | ✅ | ⚠️ | ✅ | ❌ | ❌ |
-| Ranking de Torres | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| Ranking de Quiz | ✅ | ✅ | ✅ | ❓ | ❓ | ❌ |
-| Ranking genérico por pontuação | ⚠️ | ⚠️ | ⚠️ | ❓ | ❓ | ❌ |
-| Calendário de coleta | ❌ | ✅ | ⚠️ | ✅ | ✅ | ✅ |
-| Criar evento/campanha no calendário | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ |
-| Solicitar coleta | ❌ | ❓ | ❓ | ✅ | ✅ | ❌ |
-| Aceitar/recusar solicitação | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Criar coleta recorrente | ❌ | ❌ | ⚠️ | ⚠️ | ⚠️ | ✅ |
-| Criar coleta avulsa | ❌ | ❌ | ⚠️ | ⚠️ | ⚠️ | ✅ |
-| Confirmar passagem da cooperativa | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Alterar agenda da cooperativa | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Histórico de coletas | ❌ | ✅ | ❓ | ⚠️ | ⚠️ | ✅ |
-| Pontos de coleta / mapa informativo | ✅ | ❓ | ❓ | ✅ | ✅ | ❓ |
-| Localizar cooperativas próximas | ❌ | ❌ | ❌ | ✅ | ⚠️ | ❌ |
-| Notificações gerais | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Avisos da cooperativa | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ⚠️ |
-| Gerenciar notificações | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Gerenciar lembretes | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Quizzes | ✅ | ✅ | ✅ | ❓ | ❓ | ❌ |
-| Enviar foto de descarte | ✅ | ✅ | ✅ | ❓ | ❓ | ❌ |
-| Avaliar cooperativa | ❌ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ❌ |
-| Chat síndico-cooperativa | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Cadastro e login | | | | | | |
+| Editar perfil | | | | | | |
+| Excluir conta | | | | | | |
+| FAQ | | | | | | |
+| Educacional | | | | | | |
+| Analytics individual | | | | | | |
+| Analytics agregado do condomínio | | | | | | |
+| Ranking de Moradores | | | | | | |
+| Ranking de Torres | | | | | | |
+| Ranking de Quiz | | | | | | |
+| Ranking genérico por pontuação | | | | | | |
+| Calendário de coleta | | | | | | |
+| Criar evento/campanha no calendário | | | | | | |
+| Solicitar coleta | | | | | | |
+| Aceitar/recusar solicitação | | | | | | |
+| Criar coleta recorrente | | | | | | |
+| Criar coleta avulsa | | | | | | |
+| Confirmar passagem da cooperativa | | | | | | |
+| Alterar agenda da cooperativa | | | | | | |
+| Histórico de coletas | | | | | | |
+| Pontos de coleta / mapa informativo | | | | | | |
+| Localizar cooperativas próximas | | | | | | |
+| Notificações gerais | | | | | | |
+| Avisos da cooperativa | | | | | | |
+| Gerenciar notificações | | | | | | |
+| Gerenciar lembretes | | | | | | |
+| Quizzes | | | | | | |
+| Enviar foto de descarte | | | | | | |
+| Avaliar cooperativa | | | | | | |
+| Chat síndico-cooperativa | | | | | | |
 
 ### 7.1 Observações críticas da matriz
 
@@ -735,7 +735,7 @@ Legenda: **✅ Permitido** | **❌ Não permitido** | **⚠️ Parcial / condici
 
 **Categoria:** conta  
 **Perfis relacionados:** Todos  
-**Status:** 📋 requisitos funcionais e não funcionais; implementação não confirmada  
+**Status:** requisitos funcionais e não funcionais; implementação não confirmada  
 **Palavras-chave:** cadastro, login, senha, e-mail, perfil, condomínio, código, logout, excluir conta
 
 ### 8.1 Cadastro
@@ -788,7 +788,7 @@ O Agente FAQ não deve inventar opções de configuração não documentadas.
 
 **Categoria:** interface  
 **Perfis relacionados:** Todos  
-**Status:** 📋 home personalizada é requisito; layout e nomes de botões não confirmados  
+**Status:** home personalizada é requisito; layout e nomes de botões não confirmados  
 **Palavras-chave:** home, início, atalhos, navegação, interface, corporativa
 
 O EcoCiente deve possuir Home personalizada por perfil, com atalhos e conteúdos relevantes. A documentação não define nomes exatos de botões, posição dos componentes ou menus definitivos.
@@ -823,7 +823,7 @@ A Home da Cooperativa possui requisito de calendário consolidado de todas as co
 
 **Categoria:** gamificação  
 **Perfis relacionados:** variável por ranking  
-**Status:** 📋 regras funcionais definidas parcialmente; valores dinâmicos não pertencem ao FAQ  
+**Status:** regras funcionais definidas parcialmente; valores dinâmicos não pertencem ao FAQ  
 **Palavras-chave:** ranking, classificação, posição, moradores, torres, quiz, leaderboard, pontos
 
 Os materiais descrevem pelo menos três conceitos diferentes de ranking. Esses rankings não devem ser tratados como uma única lista.
@@ -882,7 +882,7 @@ Existe requisito de “Exibir ranking de usuários” baseado em pontuação acu
 
 **Categoria:** gamificação  
 **Perfis relacionados:** Usuário Comum, Morador Residencial, Usuário Comercial; outros não definidos  
-**Status:** 📋 mecanismos previstos; fórmula e ledger de pontos não definidos  
+**Status:** mecanismos previstos; fórmula e ledger de pontos não definidos  
 **Palavras-chave:** pontos, gamificação, quiz, descarte, pontuação, recompensa
 
 O EcoCiente possui ao menos dois mecanismos de pontuação documentados:
@@ -900,7 +900,7 @@ Os dois mecanismos não devem ser tratados como equivalentes. O material não de
 
 **Categoria:** educação e gamificação  
 **Perfis relacionados:** Usuário Comum, Morador Residencial, Usuário Comercial; “industrial” citado como inconsistência  
-**Status:** 📋 requisitos funcionais definidos; implementação não confirmada  
+**Status:** requisitos funcionais definidos; implementação não confirmada  
 **Palavras-chave:** quiz, perguntas, respostas, resultado, repetir quiz, pontuação
 
 O módulo de quizzes deve permitir:
@@ -926,7 +926,7 @@ O requisito não funcional estabelece que o resultado do quiz deve ser apresenta
 
 **Categoria:** descarte e gamificação  
 **Perfis relacionados:** Usuário Comum, Morador Residencial, Usuário Comercial; “industrial” citado como inconsistência  
-**Status:** 📋 requisito funcional; implementação não confirmada  
+**Status:** requisito funcional; implementação não confirmada  
 **Palavras-chave:** descarte, foto, comprovante, imagem, pontos, upload, nuvem
 
 ### 13.1 Envio de foto
@@ -963,7 +963,7 @@ A disciplina de Desenvolvimento de Aplicativos Móveis exige uso de algum recurs
 
 **Categoria:** dados e visualização  
 **Perfis relacionados:** Morador Residencial, Usuário Comercial, Síndico Residencial, Síndico Comercial  
-**Status:** 📋 requisito funcional e acadêmico de BI; implementação não confirmada  
+**Status:** requisito funcional e acadêmico de BI; implementação não confirmada  
 **Palavras-chave:** dashboard, gráficos, KPI, desempenho, resíduos, indicadores
 
 O Dashboard do EcoCiente é a área de visualização de desempenho. O requisito funcional define gráficos e indicadores de volume de resíduos descartados por tipo.
@@ -994,7 +994,7 @@ Esses elementos representam **requisitos acadêmicos para a solução analítica
 
 **Categoria:** agente e dados  
 **Perfis relacionados:** Morador Residencial, Usuário Comercial, Síndico Residencial, Síndico Comercial  
-**Status:** 📋 arquitetura e escopo definidos; implementação completa não confirmada  
+**Status:** arquitetura e escopo definidos; implementação completa não confirmada  
 **Palavras-chave:** analytics, dados, desempenho, insights, individual, macro, condomínio
 
 O agente Analytics é responsável por responder perguntas que dependem de dados estruturados e de desempenho real. O Analytics deve analisar dados de reciclagem, gerar insights personalizados e comparar usuários, torres e períodos quando o perfil permitir.
@@ -1027,18 +1027,18 @@ O FAQ explica o que o Analytics faz, quem pode usar e qual o escopo. O FAQ não 
 
 **Categoria:** coletas  
 **Perfis relacionados:** Morador Residencial, Usuário Comercial, Síndicos, Cooperativa  
-**Status:** 📋 requisito funcional; acesso comercial possui inconsistência parcial  
+**Status:** requisito funcional; acesso comercial possui inconsistência parcial  
 **Palavras-chave:** calendário, coleta, data, agenda, dia de coleta, eventos
 
 ### 16.1 Calendário do condomínio
 
 O calendário deve apresentar os dias de coleta da cooperativa parceira vinculada ao condomínio.
 
-- Morador Residencial: ✅ acesso previsto.
-- Síndico Residencial: ✅ acesso previsto.
-- Síndico Comercial: ✅ acesso previsto na narrativa.
-- Usuário Comercial: ⚠️ acesso previsto na narrativa, mas precisa ser harmonizado com o requisito consolidado.
-- Usuário Comum: ❌ não possui calendário condominial no fluxo principal.
+- Morador Residencial: acesso previsto.
+- Síndico Residencial: acesso previsto.
+- Síndico Comercial: acesso previsto na narrativa.
+- Usuário Comercial: acesso previsto na narrativa, mas precisa ser harmonizado com o requisito consolidado.
+- Usuário Comum: não possui calendário condominial no fluxo principal.
 
 ### 16.2 Eventos e campanhas ambientais
 
@@ -1060,7 +1060,7 @@ A Cooperativa deve visualizar calendário consolidado de todas as coletas agenda
 
 **Categoria:** coletas  
 **Perfis relacionados:** Síndicos e Cooperativa; consulta condicionada para usuários vinculados  
-**Status:** 📋 fluxos funcionais definidos; implementação não confirmada  
+**Status:** fluxos funcionais definidos; implementação não confirmada  
 **Palavras-chave:** coleta, agendamento, recorrente, avulsa, solicitação, aceitar, recusar, confirmar
 
 ### 17.1 Solicitação de coleta
@@ -1170,7 +1170,7 @@ Existem requisitos de chat direto entre Síndico e Cooperativa e chat Cooperativ
 
 **Categoria:** mapa  
 **Perfis relacionados:** Usuário Comum, Síndicos; demais parcialmente definidos  
-**Status:** 📋 funcionalidade planejada; GPS é requisito extra acadêmico e implementação não confirmada  
+**Status:** funcionalidade planejada; GPS é requisito extra acadêmico e implementação não confirmada  
 **Palavras-chave:** mapa, ponto de coleta, geolocalização, GPS, cooperativa próxima
 
 ### 19.1 Finalidade
@@ -1189,7 +1189,7 @@ A narrativa atribui mapa ao Síndico Residencial e ao Síndico Comercial. Existe
 
 A idealização geral fala em conexão de moradores a pontos de coleta, mas o fluxo detalhado não atribui explicitamente mapa a esses dois perfis.
 
-**Status:** ❓ Não definido de forma consistente.
+**Status:** Não definido de forma consistente.
 
 ### 19.5 GPS
 
@@ -1209,7 +1209,7 @@ A disciplina Mobile lista uso do GPS como item extra. O documento de idealizaç�
 
 **Categoria:** comunicação  
 **Perfis relacionados:** Todos  
-**Status:** 📋 requisito funcional; push é requisito não funcional; implementação não confirmada  
+**Status:** requisito funcional; push é requisito não funcional; implementação não confirmada  
 **Palavras-chave:** notificação, push, aviso, segurança, motivacional, lembrete, cooperativa
 
 Os materiais citam vários tipos de notificação que devem permanecer diferenciados:
@@ -1252,7 +1252,7 @@ O sistema deve suportar notificações push em dispositivos móveis.
 
 **Categoria:** educação  
 **Perfis relacionados:** Usuário Comum, Morador Residencial, Usuário Comercial, Síndicos; Cooperativa não atribuída  
-**Status:** 📋 conteúdo e agente Educacional previstos; fontes externas do agente a confirmar  
+**Status:** conteúdo e agente Educacional previstos; fontes externas do agente a confirmar  
 **Palavras-chave:** ensino, reciclagem, materiais, compostagem, artigos, vídeos, educacional
 
 O EcoCiente possui área educacional destinada a orientar sobre materiais recicláveis, descarte correto e compostagem.
@@ -1290,7 +1290,7 @@ Exemplos:
 
 **Categoria:** IA  
 **Perfis relacionados:** Todos  
-**Status:** 📋 arquitetura prevista; implementação completa não confirmada  
+**Status:** arquitetura prevista; implementação completa não confirmada  
 **Palavras-chave:** multiagente, roteador, FAQ, Analytics, Educacional, Coletas, Juiz, LangGraph
 
 O EcoCiente utiliza uma arquitetura multiagente orientada por domínio. Os agentes previstos são:
@@ -1339,20 +1339,20 @@ Os requisitos acadêmicos da disciplina de Inteligência Artificial estabelecem 
 
 | Elemento | Exigência / papel | Estado documental |
 |---|---|---|
-| API de IA | desenvolver API usando **FastAPI ou Flask** | 📋 requisito; framework final não definido |
-| Modelo generativo | utilizar um modelo de IA generativa; o documento acadêmico cita provedores/modelos apenas como exemplos | ❓ escolha final não definida |
-| Multiagentes | pelo menos cinco agentes | 📋 requisito; EcoCiente idealiza seis papéis |
-| LangChain | criação/integração dos agentes | 📋 requisito; implementação a confirmar |
-| LangGraph | orquestração do fluxo multiagente | 📋 requisito; implementação a confirmar |
-| Sessões por usuário | manter separação e continuidade por usuário | 📋 requisito; estratégia técnica não definida |
-| Memória de longo prazo | persistir contexto além da interação imediata | 📋 requisito; MongoDB é associado a esse papel nos fluxos |
-| RAG | fundamentar ao menos um agente com fonte externa/local | 📋 requisito; FAQ foi idealizado como agente RAG documental |
-| Agente Juiz | controlar alucinações | 📋 requisito; critérios detalhados não definidos |
-| Guardrail | impor limites e verificações de segurança/qualidade | 📋 requisito; implementação não definida |
-| MCP | integração entre sistemas/agentes externos | 📋 requisito; integração concreta não definida |
-| A2A | integração/comunicação entre agentes | 📋 requisito; contrato concreto não definido |
-| Observabilidade/SRE | medir custo, latência, erros, ROI e custo por resolução | 📋 requisito; ferramenta e metas não definidas |
-| Arquitetura de alto nível | apresentar desenho da solução | 📋 requisito; esta base contém visão conceitual, não comprovação de infraestrutura implantada |
+| API de IA | desenvolver API usando **FastAPI ou Flask** | requisito; framework final não definido |
+| Modelo generativo | utilizar um modelo de IA generativa; o documento acadêmico cita provedores/modelos apenas como exemplos | escolha final não definida |
+| Multiagentes | pelo menos cinco agentes | requisito; EcoCiente idealiza seis papéis |
+| LangChain | criação/integração dos agentes | requisito; implementação a confirmar |
+| LangGraph | orquestração do fluxo multiagente | requisito; implementação a confirmar |
+| Sessões por usuário | manter separação e continuidade por usuário | requisito; estratégia técnica não definida |
+| Memória de longo prazo | persistir contexto além da interação imediata | requisito; MongoDB é associado a esse papel nos fluxos |
+| RAG | fundamentar ao menos um agente com fonte externa/local | requisito; FAQ foi idealizado como agente RAG documental |
+| Agente Juiz | controlar alucinações | requisito; critérios detalhados não definidos |
+| Guardrail | impor limites e verificações de segurança/qualidade | requisito; implementação não definida |
+| MCP | integração entre sistemas/agentes externos | requisito; integração concreta não definida |
+| A2A | integração/comunicação entre agentes | requisito; contrato concreto não definido |
+| Observabilidade/SRE | medir custo, latência, erros, ROI e custo por resolução | requisito; ferramenta e metas não definidas |
+| Arquitetura de alto nível | apresentar desenho da solução | requisito; esta base contém visão conceitual, não comprovação de infraestrutura implantada |
 
 A observabilidade exigida academicamente deve considerar, no mínimo, cenários de **100 e 1000 usuários semanais**, latência entre agentes, tempo total de resposta, índice de erros, custo/retorno e custo por resolução. Esta base não inventa valores para essas métricas.
 
@@ -1364,7 +1364,7 @@ A observabilidade exigida academicamente deve considerar, no mínimo, cenários 
 
 **Categoria:** IA  
 **Agente:** Roteador  
-**Status:** 📋 previsto  
+**Status:** previsto  
 **Palavras-chave:** roteamento, intenção, agente, classificação, encaminhamento
 
 O Agente Roteador deve interpretar a intenção da pergunta e encaminhá-la ao agente especializado adequado.
@@ -1395,7 +1395,7 @@ O Roteador deve considerar pelo menos:
 
 **Categoria:** IA  
 **Agente:** FAQ  
-**Status:** 📋 agente RAG previsto; base atual preparada para ingestão  
+**Status:** agente RAG previsto; base atual preparada para ingestão  
 **Palavras-chave:** FAQ, RAG, documentação, funcionalidades, permissões, tutorial
 
 O Agente FAQ é responsável por perguntas institucionais e funcionais sobre o EcoCiente. O FAQ utiliza recuperação sobre documentação local para responder com base no conteúdo oficial.
@@ -1436,7 +1436,7 @@ O FAQ não deve inventar:
 
 **Categoria:** IA  
 **Agente:** Analytics  
-**Status:** 📋 escopo previsto; fontes técnicas parcialmente definidas  
+**Status:** escopo previsto; fontes técnicas parcialmente definidas  
 **Palavras-chave:** Analytics, dados, KPI, comparação, desempenho, PostgreSQL, Redis, BI
 
 O Analytics deve responder perguntas fundamentadas em dados reais do EcoCiente.
@@ -1470,7 +1470,7 @@ O Analytics deve responder perguntas fundamentadas em dados reais do EcoCiente.
 
 **Categoria:** IA  
 **Agente:** Educacional  
-**Status:** 📋 agente RAG previsto; corpus externo ainda precisa ser formalizado  
+**Status:** agente RAG previsto; corpus externo ainda precisa ser formalizado  
 **Palavras-chave:** educacional, reciclagem, compostagem, materiais, MMA, SINIR, RAG
 
 O Agente Educacional é especializado em ensino ambiental e conscientização.
@@ -1499,7 +1499,7 @@ O FAQ explica o funcionamento da área educacional. O conteúdo técnico ambient
 
 **Categoria:** IA  
 **Agente:** Coletas  
-**Status:** 📋 agente operacional previsto; integração dinâmica não confirmada  
+**Status:** agente operacional previsto; integração dinâmica não confirmada  
 **Palavras-chave:** Coletas, agenda, calendário, cooperativa, confirmação, atraso, recorrente, avulsa
 
 O Agente Coletas é especializado em informações operacionais e dinâmicas relacionadas à relação entre cooperativas e condomínios.
@@ -1526,7 +1526,7 @@ O mapeamento de agentes inclui Coleta para Usuário Comercial, mas a descrição
 
 **Categoria:** IA  
 **Agente:** Juiz  
-**Status:** 📋 requisito acadêmico obrigatório; comportamento detalhado não definido  
+**Status:** requisito acadêmico obrigatório; comportamento detalhado não definido  
 **Palavras-chave:** juiz, guardrail, alucinação, validação, segurança
 
 O Agente Juiz é previsto para controle de alucinações e verificação da qualidade da resposta gerada.
@@ -1577,7 +1577,7 @@ Se a resposta puder mudar porque depende de data, usuário, condomínio, volume,
 
 **Categoria:** RAG  
 **Agente:** FAQ  
-**Status:** 📋 arquitetura conceitual; tecnologias de embedding e vector store não definidas  
+**Status:** arquitetura conceitual; tecnologias de embedding e vector store não definidas  
 **Palavras-chave:** RAG, embedding, chunk, retrieval, vector store, contexto, LangChain
 
 ### 30.1 Fonte de conhecimento
@@ -1729,7 +1729,7 @@ A disciplina de Inteligência Artificial exige controle de sessões por usuário
 
 A disciplina de Inteligência Artificial exige memória de longo prazo. A idealização técnica afirma que MongoDB está sendo usado como memória de longo prazo do chatbot e para enriquecer análises.
 
-**Classificação:** 📋 arquitetura declarada / requisito; implementação técnica não verificada nesta base.
+**Classificação:** arquitetura declarada / requisito; implementação técnica não verificada nesta base.
 
 ### 32.3 Persistência mobile
 
@@ -1762,13 +1762,13 @@ O projeto possui requisitos acadêmicos claros para uso de PostgreSQL em diferen
 
 Banco de Dados 2 exige uso de Redis para fila de processamento e/ou ranking em tempo real. O documento de fluxo define Redis para Ranking de Moradores e Torres e cita Redis Sorted Set (ZSET).
 
-**Classificação:** 📋 arquitetura declarada / requisito; implementação operacional não confirmada.
+**Classificação:** arquitetura declarada / requisito; implementação operacional não confirmada.
 
 ### 33.3 MongoDB
 
 Banco de Dados 2 exige MongoDB em alguma interação conversacional. O documento de fluxo declara MongoDB como memória de longo prazo do chatbot e fonte eventual de contexto para Analytics.
 
-**Classificação:** 📋 arquitetura declarada / requisito; implementação operacional não confirmada.
+**Classificação:** arquitetura declarada / requisito; implementação operacional não confirmada.
 
 ### 33.4 Vector Store do RAG
 
@@ -1794,16 +1794,16 @@ A documentação acadêmica distribui responsabilidades entre várias camadas. A
 
 | Camada | Requisitos acadêmicos relevantes | Estado nesta base |
 |---|---|---|
-| Aplicativo móvel | controle de acesso; uso de recurso de hardware; consumo de API; persistência via Firebase ou SQLite; chatbot operacional; GPS e notificações como extras | 📋 requisito / escolhas finais parcialmente pendentes |
-| API de negócio | Java, Spring MVC, Spring Data JPA, PostgreSQL, CRUD, validação e tratamento centralizado de exceções | 📋 requisito / implementação a confirmar |
-| Segurança de API | Spring Security aparece como requisito extra | 📋 requisito extra / implementação a confirmar |
-| Front-end web dinâmico | Vite + React + TypeScript, organização em componentes/páginas/serviços, rotas, acessibilidade e feedback assíncrono | 📋 requisito / implementação a confirmar |
-| Banco relacional e modelagem | PostgreSQL, normalização, PK/FK, objetos lógicos, auditoria, otimização e views analíticas | 📋 requisito / artefatos específicos devem comprovar execução |
-| Banco NoSQL/conversacional | MongoDB obrigatório em interação conversacional; Redis obrigatório para fila e/ou ranking | 📋 requisito / implementação a confirmar |
-| BI | dashboard conectado aos dados da aplicação; visualizações e KPIs; pipeline Databricks como extra | 📋 requisito / implementação a confirmar |
-| IA | FastAPI ou Flask, LangChain, LangGraph, multiagentes, memória, RAG, Juiz, guardrails, MCP, A2A e observabilidade | 📋 requisito / implementação a confirmar |
-| DevOps | revisão de código/PR, infraestrutura em nuvem, container e orquestração; CI/CD como extra | 📋 requisito / provedores e ferramentas finais não definidos nesta base |
-| Integração entre bancos | comunicação via RPA entre os bancos das séries | 📋 requisito acadêmico / especificação operacional não fornecida |
+| Aplicativo móvel | controle de acesso; uso de recurso de hardware; consumo de API; persistência via Firebase ou SQLite; chatbot operacional; GPS e notificações como extras | requisito / escolhas finais parcialmente pendentes |
+| API de negócio | Java, Spring MVC, Spring Data JPA, PostgreSQL, CRUD, validação e tratamento centralizado de exceções | requisito / implementação a confirmar |
+| Segurança de API | Spring Security aparece como requisito extra | requisito extra / implementação a confirmar |
+| Front-end web dinâmico | Vite + React + TypeScript, organização em componentes/páginas/serviços, rotas, acessibilidade e feedback assíncrono | requisito / implementação a confirmar |
+| Banco relacional e modelagem | PostgreSQL, normalização, PK/FK, objetos lógicos, auditoria, otimização e views analíticas | requisito / artefatos específicos devem comprovar execução |
+| Banco NoSQL/conversacional | MongoDB obrigatório em interação conversacional; Redis obrigatório para fila e/ou ranking | requisito / implementação a confirmar |
+| BI | dashboard conectado aos dados da aplicação; visualizações e KPIs; pipeline Databricks como extra | requisito / implementação a confirmar |
+| IA | FastAPI ou Flask, LangChain, LangGraph, multiagentes, memória, RAG, Juiz, guardrails, MCP, A2A e observabilidade | requisito / implementação a confirmar |
+| DevOps | revisão de código/PR, infraestrutura em nuvem, container e orquestração; CI/CD como extra | requisito / provedores e ferramentas finais não definidos nesta base |
+| Integração entre bancos | comunicação via RPA entre os bancos das séries | requisito acadêmico / especificação operacional não fornecida |
 
 > **Pendente de definição:** quais opções alternativas foram escolhidas de fato, quais componentes já estão integrados e quais ambientes constituem desenvolvimento, homologação e produção.
 
@@ -1813,7 +1813,7 @@ A documentação acadêmica distribui responsabilidades entre várias camadas. A
 
 **Categoria:** segurança  
 **Perfis relacionados:** Todos  
-**Status:** 📋 requisitos conceituais definidos; implementação específica não confirmada  
+**Status:** requisitos conceituais definidos; implementação específica não confirmada  
 **Palavras-chave:** segurança, autenticação, autorização, acesso, endpoint, senha, perfil
 
 ### 34.1 Autenticação
@@ -3281,90 +3281,90 @@ A tabela abaixo contém formas equivalentes ou próximas que podem aparecer em p
 
 ### 46.1 Como interpretar os status
 
-- **✅ Implementado:** somente quando o material fornecido comprova que a funcionalidade está funcionando atualmente.
-- **🚧 Em desenvolvimento:** somente quando o material fornecido declara explicitamente implementação em andamento.
-- **📋 Planejado / requisito:** a funcionalidade aparece na idealização, nos fluxos ou nos requisitos, sem comprovação suficiente de implementação concluída.
-- **❓ Não confirmado:** existe referência insuficiente, contraditória ou sem estado de implementação verificável.
+- ** Implementado:** somente quando o material fornecido comprova que a funcionalidade está funcionando atualmente.
+- ** Em desenvolvimento:** somente quando o material fornecido declara explicitamente implementação em andamento.
+- ** Planejado / requisito:** a funcionalidade aparece na idealização, nos fluxos ou nos requisitos, sem comprovação suficiente de implementação concluída.
+- ** Não confirmado:** existe referência insuficiente, contraditória ou sem estado de implementação verificável.
 
-**Regra geral desta base:** os materiais fornecidos descrevem principalmente idealização e requisitos. Portanto, a maioria dos itens abaixo é classificada como **📋 Planejado / requisito** ou **❓ Não confirmado**. A presença de um requisito não comprova implementação.
+**Regra geral desta base:** os materiais fornecidos descrevem principalmente idealização e requisitos. Portanto, a maioria dos itens abaixo é classificada como ** Planejado / requisito** ou ** Não confirmado**. A presença de um requisito não comprova implementação.
 
 ### 46.2 Status funcional consolidado
 
 | Funcionalidade ou componente | Status | Evidência documental / observação |
 |---|---|---|
-| Cadastro com escolha de perfil | 📋 Planejado / requisito | Requisito funcional 1. |
-| Login com e-mail e senha | 📋 Planejado / requisito | Requisito não funcional 2. |
-| Vínculo com condomínio por código | 📋 Planejado / requisito | Requisito funcional 3; escopo comercial precisa ser definido. |
-| Edição de nome, e-mail, senha e foto | 📋 Planejado / requisito | Requisito funcional 4. |
-| Logout | 📋 Planejado / requisito | Requisito funcional 4. |
-| Home personalizada por perfil | 📋 Planejado / requisito | Requisito funcional 5. |
-| Ranking na home do Síndico | 📋 Planejado / requisito | Requisito funcional 6. |
-| Notificações gerais | 📋 Planejado / requisito | Requisito funcional 7. |
-| Calendário de coleta | 📋 Planejado / requisito | Requisitos funcionais 10, 12 e 33; permissões contêm divergências por perfil. |
-| Eventos e campanhas ambientais no calendário | 📋 Planejado / requisito | Requisito funcional 11. |
-| Pontos de coleta | 📋 Planejado / requisito | Requisito funcional 13 e idealização de geolocalização. |
-| Cooperativa visualizar condomínios atendidos | 📋 Planejado / requisito | Requisito funcional 14. |
-| Cooperativa visualizar e aceitar/recusar solicitações | 📋 Planejado / requisito | Requisito funcional 15. |
-| Dashboard de desempenho | 📋 Planejado / requisito | Requisito funcional 16 e requisito acadêmico de BI. |
-| Ranking por apartamento/bloco | 📋 Planejado / requisito | Requisito funcional 17. |
-| Histórico de coletas | 📋 Planejado / requisito | Requisito funcional 18. |
-| Chatbot institucional/de uso | 📋 Planejado / requisito | Requisitos 19 e 66 e arquitetura multiagente; escopo por perfil contém conflito. |
-| Chat Síndico–Cooperativa | 📋 Planejado / requisito | Requisito funcional 20. |
-| Chat Cooperativa–Condomínios | 📋 Planejado / requisito | Requisito funcional 21. |
-| Ensino sobre materiais | 📋 Planejado / requisito | Requisito funcional 22 e idealização. |
-| Guia de compostagem | 📋 Planejado / requisito | Requisito funcional 23; disponibilidade por perfil diverge da narrativa dos fluxos. |
-| Busca de conteúdo educativo | 📋 Planejado / requisito | Requisito funcional 24. |
-| Favoritar conteúdo | 📋 Planejado / requisito | Requisito funcional 25. |
-| Exclusão de perfil e dados | 📋 Planejado / requisito | Requisito funcional 26; política de retenção não definida. |
-| Solicitação de coleta pelo Síndico | 📋 Planejado / requisito | Requisito funcional 27. |
-| Localizar cooperativas próximas | 📋 Planejado / requisito | Requisito funcional 28; GPS é requisito extra do aplicativo móvel. |
-| Visualizar avisos da Cooperativa | 📋 Planejado / requisito | Requisito funcional 29. |
-| Receber lembretes automáticos de coleta | 📋 Planejado / requisito | Requisito funcional 30. |
-| Cooperativa gerenciar notificações | 📋 Planejado / requisito | Requisito funcional 31. |
-| Cooperativa gerenciar lembretes | 📋 Planejado / requisito | Requisito funcional 32. |
-| Cooperativa gerenciar calendário | 📋 Planejado / requisito | Requisito funcional 33. |
-| Quizzes | 📋 Planejado / requisito | Requisitos funcionais 41 a 48. |
-| Resultado de quiz em até 2 segundos | 📋 Planejado / requisito | Requisito não funcional 49; não há evidência de medição. |
-| Quiz simples e intuitivo | 📋 Planejado / requisito | Requisito não funcional 50. |
-| Envio de foto do descarte | 📋 Planejado / requisito | Requisito funcional 51 e requisito acadêmico de uso de hardware do dispositivo. |
-| Armazenamento das fotos | 📋 Planejado / requisito | Requisito funcional 52. |
-| Consulta das próprias fotos | 📋 Planejado / requisito | Requisito funcional 53. |
-| Pontos automáticos por descarte sem validação manual | 📋 Planejado / requisito | Requisito funcional 55. |
-| Ranking de usuários por pontuação | 📋 Planejado / requisito | Requisitos 56 e 57; relação com rankings residenciais precisa ser definida. |
-| Armazenamento de imagens em nuvem | 📋 Planejado / requisito | Requisito não funcional 59; provedor não definido. |
-| Disponibilidade e escala das imagens | 📋 Planejado / requisito | Requisitos não funcionais 60 e 61. |
-| Avaliação Condomínio → Cooperativa de até 5 estrelas | 📋 Planejado / requisito | Requisito funcional 62; ator exato que avalia precisa ser formalizado. |
-| Push notifications | 📋 Planejado / requisito | Requisito não funcional 63 e requisito extra do app móvel. |
-| Reinicialização do Ranking de Moradores em 7 dias | 📋 Planejado / requisito | Requisito 64 e narrativa de Síndico Residencial. |
-| Reinicialização do Ranking de Torres em 30 dias | 📋 Planejado / requisito | Requisito 65 e narrativa de Síndico Residencial. |
-| Analytics individual | 📋 Planejado / requisito | Requisito 67 e descrição do Agente Analytics. |
-| Analytics agregado para Síndicos | 📋 Planejado / requisito | Requisito 68 e descrição do Agente Analytics. |
-| Arquitetura multiagente com seis papéis | 📋 Planejado / requisito | Fluxos definem seis agentes; requisito acadêmico exige pelo menos cinco. |
-| RAG no Agente FAQ | 📋 Planejado / requisito | Descrição funcional do FAQ e requisito acadêmico de mitigação de alucinação com RAG. |
-| Agente Juiz | 📋 Planejado / requisito | Exigência acadêmica e arquitetura idealizada. |
-| Guardrails | 📋 Planejado / requisito | Exigência acadêmica. |
-| MongoDB em interação conversacional | 📋 Planejado / requisito | Obrigatório em Banco de Dados 2; fluxos associam MongoDB à memória. |
-| Redis para ranking e/ou fila | 📋 Planejado / requisito | Obrigatório em Banco de Dados 2; fluxos indicam ZSET para rankings. |
-| PostgreSQL para dados estruturados | 📋 Planejado / requisito | Requisitos de banco/API e descrição do Analytics. |
-| Vector Store do FAQ | ❓ Não confirmado | A necessidade conceitual decorre do RAG, mas a tecnologia não foi definida. |
-| Modelo de embeddings | ❓ Não confirmado | Não definido nos materiais. |
-| Modelo LLM / provedor | ❓ Não confirmado | Requisito admite múltiplas opções; nenhuma foi confirmada como escolha final. |
-| API da camada de IA em FastAPI ou Flask | 📋 Planejado / requisito | Requisito acadêmico de Inteligência Artificial; framework final não definido. |
-| LangChain | 📋 Planejado / requisito | Requisito acadêmico; implementação precisa ser confirmada. |
-| LangGraph | 📋 Planejado / requisito | Requisito acadêmico; implementação precisa ser confirmada. |
-| Sessões por usuário | 📋 Planejado / requisito | Requisito acadêmico; estratégia técnica não definida. |
-| MCP e A2A | 📋 Planejado / requisito | Requisito acadêmico; integrações concretas não definidas. |
-| Observabilidade/SRE da IA | 📋 Planejado / requisito | Requisito acadêmico; implementação e ferramenta não definidas. |
-| API REST Java Spring MVC + PostgreSQL | 📋 Planejado / requisito | Requisito acadêmico de Desenvolvimento 2. |
-| Spring Data JPA | 📋 Planejado / requisito | Requisito acadêmico de Desenvolvimento 2. |
-| Spring Security | 📋 Planejado / requisito extra | Requisito extra; não comprova implementação. |
-| Front-end React TypeScript com Vite | 📋 Planejado / requisito | Requisito acadêmico de Aplicações Dinâmicas. |
-| Persistência mobile via Firebase ou SQLite | ❓ Não confirmado | Requisito exige uma das opções; escolha final não fornecida. |
-| Uso de GPS do dispositivo | 📋 Planejado / requisito extra | Requisito extra de app móvel; geolocalização também aparece na idealização. |
-| Disponibilidade 24 horas por dia | 📋 Planejado / requisito | Requisito não funcional 35; não há evidência operacional. |
-| Responsividade em smartphone, tablet e computador | 📋 Planejado / requisito | Requisito não funcional 38; app móvel também prevê adaptação a celular/tablet como extra. |
-| Escalabilidade geral | 📋 Planejado / requisito | Requisito não funcional 40; não há teste de capacidade fornecido. |
-| LGPD e política de privacidade formal | ❓ Não confirmado | Preocupação e proteção são exigidas; documento jurídico detalhado não foi fornecido. |
+| Cadastro com escolha de perfil | Planejado / requisito | Requisito funcional 1. |
+| Login com e-mail e senha | Planejado / requisito | Requisito não funcional 2. |
+| Vínculo com condomínio por código | Planejado / requisito | Requisito funcional 3; escopo comercial precisa ser definido. |
+| Edição de nome, e-mail, senha e foto | Planejado / requisito | Requisito funcional 4. |
+| Logout | Planejado / requisito | Requisito funcional 4. |
+| Home personalizada por perfil | Planejado / requisito | Requisito funcional 5. |
+| Ranking na home do Síndico | Planejado / requisito | Requisito funcional 6. |
+| Notificações gerais | Planejado / requisito | Requisito funcional 7. |
+| Calendário de coleta | Planejado / requisito | Requisitos funcionais 10, 12 e 33; permissões contêm divergências por perfil. |
+| Eventos e campanhas ambientais no calendário | Planejado / requisito | Requisito funcional 11. |
+| Pontos de coleta | Planejado / requisito | Requisito funcional 13 e idealização de geolocalização. |
+| Cooperativa visualizar condomínios atendidos | Planejado / requisito | Requisito funcional 14. |
+| Cooperativa visualizar e aceitar/recusar solicitações | Planejado / requisito | Requisito funcional 15. |
+| Dashboard de desempenho | Planejado / requisito | Requisito funcional 16 e requisito acadêmico de BI. |
+| Ranking por apartamento/bloco | Planejado / requisito | Requisito funcional 17. |
+| Histórico de coletas | Planejado / requisito | Requisito funcional 18. |
+| Chatbot institucional/de uso | Planejado / requisito | Requisitos 19 e 66 e arquitetura multiagente; escopo por perfil contém conflito. |
+| Chat Síndico–Cooperativa | Planejado / requisito | Requisito funcional 20. |
+| Chat Cooperativa–Condomínios | Planejado / requisito | Requisito funcional 21. |
+| Ensino sobre materiais | Planejado / requisito | Requisito funcional 22 e idealização. |
+| Guia de compostagem | Planejado / requisito | Requisito funcional 23; disponibilidade por perfil diverge da narrativa dos fluxos. |
+| Busca de conteúdo educativo | Planejado / requisito | Requisito funcional 24. |
+| Favoritar conteúdo | Planejado / requisito | Requisito funcional 25. |
+| Exclusão de perfil e dados | Planejado / requisito | Requisito funcional 26; política de retenção não definida. |
+| Solicitação de coleta pelo Síndico | Planejado / requisito | Requisito funcional 27. |
+| Localizar cooperativas próximas | Planejado / requisito | Requisito funcional 28; GPS é requisito extra do aplicativo móvel. |
+| Visualizar avisos da Cooperativa | Planejado / requisito | Requisito funcional 29. |
+| Receber lembretes automáticos de coleta | Planejado / requisito | Requisito funcional 30. |
+| Cooperativa gerenciar notificações | Planejado / requisito | Requisito funcional 31. |
+| Cooperativa gerenciar lembretes | Planejado / requisito | Requisito funcional 32. |
+| Cooperativa gerenciar calendário | Planejado / requisito | Requisito funcional 33. |
+| Quizzes | Planejado / requisito | Requisitos funcionais 41 a 48. |
+| Resultado de quiz em até 2 segundos | Planejado / requisito | Requisito não funcional 49; não há evidência de medição. |
+| Quiz simples e intuitivo | Planejado / requisito | Requisito não funcional 50. |
+| Envio de foto do descarte | Planejado / requisito | Requisito funcional 51 e requisito acadêmico de uso de hardware do dispositivo. |
+| Armazenamento das fotos | Planejado / requisito | Requisito funcional 52. |
+| Consulta das próprias fotos | Planejado / requisito | Requisito funcional 53. |
+| Pontos automáticos por descarte sem validação manual | Planejado / requisito | Requisito funcional 55. |
+| Ranking de usuários por pontuação | Planejado / requisito | Requisitos 56 e 57; relação com rankings residenciais precisa ser definida. |
+| Armazenamento de imagens em nuvem | Planejado / requisito | Requisito não funcional 59; provedor não definido. |
+| Disponibilidade e escala das imagens | Planejado / requisito | Requisitos não funcionais 60 e 61. |
+| Avaliação Condomínio → Cooperativa de até 5 estrelas | Planejado / requisito | Requisito funcional 62; ator exato que avalia precisa ser formalizado. |
+| Push notifications | Planejado / requisito | Requisito não funcional 63 e requisito extra do app móvel. |
+| Reinicialização do Ranking de Moradores em 7 dias | Planejado / requisito | Requisito 64 e narrativa de Síndico Residencial. |
+| Reinicialização do Ranking de Torres em 30 dias | Planejado / requisito | Requisito 65 e narrativa de Síndico Residencial. |
+| Analytics individual | Planejado / requisito | Requisito 67 e descrição do Agente Analytics. |
+| Analytics agregado para Síndicos | Planejado / requisito | Requisito 68 e descrição do Agente Analytics. |
+| Arquitetura multiagente com seis papéis | Planejado / requisito | Fluxos definem seis agentes; requisito acadêmico exige pelo menos cinco. |
+| RAG no Agente FAQ | Planejado / requisito | Descrição funcional do FAQ e requisito acadêmico de mitigação de alucinação com RAG. |
+| Agente Juiz | Planejado / requisito | Exigência acadêmica e arquitetura idealizada. |
+| Guardrails | Planejado / requisito | Exigência acadêmica. |
+| MongoDB em interação conversacional | Planejado / requisito | Obrigatório em Banco de Dados 2; fluxos associam MongoDB à memória. |
+| Redis para ranking e/ou fila | Planejado / requisito | Obrigatório em Banco de Dados 2; fluxos indicam ZSET para rankings. |
+| PostgreSQL para dados estruturados | Planejado / requisito | Requisitos de banco/API e descrição do Analytics. |
+| Vector Store do FAQ | Não confirmado | A necessidade conceitual decorre do RAG, mas a tecnologia não foi definida. |
+| Modelo de embeddings | Não confirmado | Não definido nos materiais. |
+| Modelo LLM / provedor | Não confirmado | Requisito admite múltiplas opções; nenhuma foi confirmada como escolha final. |
+| API da camada de IA em FastAPI ou Flask | Planejado / requisito | Requisito acadêmico de Inteligência Artificial; framework final não definido. |
+| LangChain | Planejado / requisito | Requisito acadêmico; implementação precisa ser confirmada. |
+| LangGraph | Planejado / requisito | Requisito acadêmico; implementação precisa ser confirmada. |
+| Sessões por usuário | Planejado / requisito | Requisito acadêmico; estratégia técnica não definida. |
+| MCP e A2A | Planejado / requisito | Requisito acadêmico; integrações concretas não definidas. |
+| Observabilidade/SRE da IA | Planejado / requisito | Requisito acadêmico; implementação e ferramenta não definidas. |
+| API REST Java Spring MVC + PostgreSQL | Planejado / requisito | Requisito acadêmico de Desenvolvimento 2. |
+| Spring Data JPA | Planejado / requisito | Requisito acadêmico de Desenvolvimento 2. |
+| Spring Security | Planejado / requisito extra | Requisito extra; não comprova implementação. |
+| Front-end React TypeScript com Vite | Planejado / requisito | Requisito acadêmico de Aplicações Dinâmicas. |
+| Persistência mobile via Firebase ou SQLite | Não confirmado | Requisito exige uma das opções; escolha final não fornecida. |
+| Uso de GPS do dispositivo | Planejado / requisito extra | Requisito extra de app móvel; geolocalização também aparece na idealização. |
+| Disponibilidade 24 horas por dia | Planejado / requisito | Requisito não funcional 35; não há evidência operacional. |
+| Responsividade em smartphone, tablet e computador | Planejado / requisito | Requisito não funcional 38; app móvel também prevê adaptação a celular/tablet como extra. |
+| Escalabilidade geral | Planejado / requisito | Requisito não funcional 40; não há teste de capacidade fornecido. |
+| LGPD e política de privacidade formal | Não confirmado | Preocupação e proteção são exigidas; documento jurídico detalhado não foi fornecido. |
 
 ### 46.3 Estado de implementação da base FAQ
 
@@ -3515,7 +3515,7 @@ Esta seção reúne decisões que precisam ser resolvidas antes de tratar a docu
 
 ### 47.12 Implementação e entrega acadêmica
 
-1. **Evidência de implementação atual:** os materiais fornecidos não incluem relatório de funcionalidades já concluídas; por isso a base não marca funcionalidades como ✅ Implementado.
+1. **Evidência de implementação atual:** os materiais fornecidos não incluem relatório de funcionalidades já concluídas; por isso a base não marca funcionalidades como Implementado.
 2. **Documento atual anterior do Agente FAQ:** o conjunto desta execução trouxe instruções para construir/revisar a base, mas não apresentou um conteúdo anterior identificável como conhecimento FAQ já implementado a ser preservado linha a linha.
 3. **Links de repositório e ambiente:** não fornecidos e não devem ser inventados.
 4. **Ferramentas de cloud/container/orquestração efetivamente escolhidas:** requisitos acadêmicos exigem infraestrutura e container/orquestração, mas escolhas concretas não foram fornecidas.
