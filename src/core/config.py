@@ -51,6 +51,9 @@ class Settings:
 
     embedding_provider: str = "ollama"
     embedding_model: str = "nomic-embed-text"
+    qdrant_url: str | None = None
+    qdrant_api_key: str | None = None
+    qdrant_collection: str = "faq"
 
     postgres_url: str | None = None
     postgres_pool_min: int = 1
@@ -131,6 +134,9 @@ class Settings:
             gemini_api_key=_get("GEMINI_API_KEY"),
             embedding_provider=(_get("EMBEDDING_PROVIDER", "ollama") or "ollama").lower(),
             embedding_model=_get("EMBEDDING_MODEL", "nomic-embed-text") or "nomic-embed-text",
+            qdrant_url=_get("QDRANT_URL"),
+            qdrant_api_key=_get("QDRANT_API_KEY"),
+            qdrant_collection=_get("QDRANT_COLLECTION", "faq") or "faq",
             postgres_url=_get("POSTGRES_URL"),
             postgres_pool_min=_int("POSTGRES_POOL_MIN", 1),
             postgres_pool_max=_int("POSTGRES_POOL_MAX", 8),
