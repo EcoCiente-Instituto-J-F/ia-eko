@@ -69,6 +69,11 @@ class Settings:
     allow_storage_fallback: bool = True
     memory_max_messages: int = 20
     memory_keep_recent_messages: int = 6
+    
+    neo4j_uri: str| None = None
+    neo4j_username: str| None = None   
+    neo4j_password: str| None = None
+    neo4j_database: str| None = None
 
     knowledge_base_path: str = "data/FAQ_KNOWLEDGE_BASE.md"
     enable_external_source: bool = True
@@ -98,7 +103,7 @@ class Settings:
     test_mongodb_uri: str | None = None
     test_mongodb_database: str = "ecociente_test"
     test_redis_url: str | None = None
-    test_redis_prefix: str = "ecociente:test:"
+    test_redis_prefix: str = "ecociente:test:"  
 
 
     def __post_init__(self) -> None:
@@ -170,6 +175,7 @@ class Settings:
             test_mongodb_database=_get("TEST_MONGODB_DATABASE", "ecociente_test") or "ecociente_test",
             test_redis_url=_get("TEST_REDIS_URL"),
             test_redis_prefix=_get("TEST_REDIS_PREFIX", "ecociente:test:") or "ecociente:test:",
+
         )
 
     def with_overrides(self, **changes: object) -> "Settings":
