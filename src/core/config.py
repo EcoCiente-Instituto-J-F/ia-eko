@@ -71,9 +71,11 @@ class Settings:
     memory_keep_recent_messages: int = 6
 
     neo4j_uri: str| None = None
-    neo4j_username: str| None = None   
+    neo4j_username: str| None = None
     neo4j_password: str| None = None
     neo4j_database: str| None = None
+    aura_instanceid: str | None = None
+    aura_instancename: str | None = None
 
     knowledge_base_path: str = "data/FAQ_KNOWLEDGE_BASE.md"
     enable_external_source: bool = True
