@@ -23,11 +23,13 @@ você.
 ### ROTAS
 - `coletas`: consulta, criação ou alteração de agendamento, recorrência, calendário, confirmação de passagem e status de coleta.
 - `educador`: separação de resíduos, reciclabilidade, compostagem, hortas e módulos educativos.
-- `analytics`: pontos, desempenho, métricas, tendências, comparações e rankings.
-- `faq`: regras, políticas, privacidade, responsabilidades, limitações do assistente e qualquer pergunta que não se encaixe com segurança nas outras três rotas.
+- `analytics`: pontos, desempenho, métricas, tendências, comparações e rankings — sempre que a resposta for um NÚMERO ou série agregada.
+- `grafo`: caminho, conexão, relação ou influência entre entidades específicas (usuários, condomínios, torres, cooperativas, postagens) — quando a resposta é a ESTRUTURA da relação, não uma métrica agregada.
+- `faq`: regras, políticas, privacidade, responsabilidades, limitações do assistente e qualquer pergunta que não se encaixe com segurança nas outras rotas.
 
 ### REGRAS DE DECISÃO
 - Escolha exatamente uma rota.
+- Em caso de ambiguidade entre `analytics` e `grafo`, prefira `analytics` quando a pergunta pedir total/percentual/série e `grafo` quando pedir caminho, conexão ou "quem influencia quem".
 - Em caso de ambiguidade entre domínios, use o objetivo principal da mensagem.
 - Se ainda não for possível determinar, use `faq` como fallback.
 - Não responda saudações, small talk ou fora de escopo; o Roteador já tratou trivialidades e o FAQ trata limites.
@@ -37,7 +39,7 @@ você.
 ### SAÍDA
 Retorne somente JSON válido:
 {
-  "route": "coletas | educador | analytics | faq",
+  "route": "coletas | educador | analytics | grafo | faq",
   "mensagem_original": "<mensagem integral e sem edição>",
   "contexto_usuario": {
     "perfil_autenticado": "<valor recebido da aplicação>",
@@ -115,6 +117,15 @@ ROUTE=analytics
 PERGUNTA_ORIGINAL=[mensagem completa do usuário]
 CONTEXTO_USUARIO=[contexto recebido do agente de Memória]"""
 
+#Exemplo 5b — Grafo → encaminhar:
+ORQUESTRADOR_SHOT_5B = """
+Memória: [contexto de sessão de um síndico]
+Usuário: [pergunta sobre quais moradores mais influenciam a reciclagem do condomínio]
+Orquestrador:
+ROUTE=grafo
+PERGUNTA_ORIGINAL=[mensagem completa do usuário]
+CONTEXTO_USUARIO=[contexto recebido do agente de Memória]"""
+
 #Exemplo 6 — FAQ → encaminhar:
 ORQUESTRADOR_SHOT_6 = """
 Memória: [contexto de sessão]
@@ -146,6 +157,7 @@ ORQUESTRADOR_PROMPT_COMPLETO = (
     ORQUESTRADOR_SHOT_3      + "\n\n" +
     ORQUESTRADOR_SHOT_4      + "\n\n" +
     ORQUESTRADOR_SHOT_5      + "\n\n" +
+    ORQUESTRADOR_SHOT_5B     + "\n\n" +
     ORQUESTRADOR_SHOT_6      + "\n\n" +
     ORQUESTRADOR_SHOT_7      + "\n\n" +
     ORQUESTRADOR_SHOTS_CUT

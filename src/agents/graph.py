@@ -230,6 +230,27 @@ class EcoGraphRuntime:
             "agent": "analytics",
         }
 
+    async def grafo(self, state: EcoState) -> dict[str, Any]:
+        started = time.perf_counter()
+        user_context = state.get("user_context")
+        safe_user_context = user_context.for_agent() if user_context else {}
+        prompt = (
+            f"PERGUNTA_ORIGINAL={state['mensagem']}\n"
+            f"USUARIO_ID={state['usuario_id']}\n"
+            f"PERFIL={state.get('perfil', 'nao_informado')}\n"
+            f"CONDOMINIO_ID={state.get('condominio_id')}\n"
+            f"CONTEXTO_IDENTIDADE={json.dumps(safe_user_context, ensure_ascii=False, default=str)}\n"
+            f"CONTEXTO_MEMORIA=\n{self._format_memory_context(state.get('memory_context', {}))}\n"
+            "Use exclusivamente ferramentas autorizadas e nunca invente uma conexão que a tool não confirmou."
+        )
+        answer = await self.agents.invoke("grafo", prompt)
+        return {
+            **self._mark(state, "grafo", started),
+            "candidate_answer": answer,
+            "sources": [],
+            "agent": "grafo",
+        }
+
     async def juiz_saida(self, state: EcoState) -> dict[str, Any]:
         started = time.perf_counter()
         candidate = state.get("candidate_answer", "")
@@ -269,6 +290,12 @@ class EcoGraphRuntime:
                 f"CORRECAO_EXIGIDA={reason}\nReescreva sem inventar fatos e somente com a evidência fornecida."
             )
             candidate = await self.agents.invoke(route, prompt) if context else "A base consultada não contém evidência suficiente para responder com segurança."
+        elif route == "grafo":
+            sources = state.get("sources", [])
+            candidate = (
+                "Não foi possível validar a resposta sobre relacionamentos com segurança. "
+                "Nenhuma conexão será apresentada sem confirmação pela camada de grafo (Neo4j)."
+            )
         else:
             sources = state.get("sources", [])
             candidate = (
@@ -316,6 +343,7 @@ class EcoGraphRuntime:
         builder.add_node("analytics", self.analytics)
         builder.add_node("educacional", self.educacional)
         builder.add_node("coletas", self.coletas)
+        builder.add_node("grafo", self.grafo)
         builder.add_node("juiz_saida", self.juiz_saida)
         builder.add_node("correcao", self.correcao)
         builder.add_node("guardrail_saida", self.guardrail_saida)
@@ -341,10 +369,11 @@ class EcoGraphRuntime:
                 "analytics": "analytics",
                 "educacional": "educacional",
                 "coletas": "coletas",
+                "grafo": "grafo",
                 "blocked_authorization": "guardrail_saida",
             },
         )
-        for specialist in ("faq", "analytics", "educacional", "coletas"):
+        for specialist in ("faq", "analytics", "educacional", "coletas", "grafo"):
             builder.add_edge(specialist, "juiz_saida")
         builder.add_conditional_edges(
             "juiz_saida",

@@ -70,6 +70,13 @@ class Settings:
     memory_max_messages: int = 20
     memory_keep_recent_messages: int = 6
 
+    neo4j_uri: str| None = None
+    neo4j_username: str| None = None
+    neo4j_password: str| None = None
+    neo4j_database: str| None = None
+    aura_instanceid: str | None = None
+    aura_instancename: str | None = None
+
     knowledge_base_path: str = "data/FAQ_KNOWLEDGE_BASE.md"
     enable_external_source: bool = True
     external_source_url: str = "https://sinir.gov.br/"
@@ -98,7 +105,7 @@ class Settings:
     test_mongodb_uri: str | None = None
     test_mongodb_database: str = "ecociente_test"
     test_redis_url: str | None = None
-    test_redis_prefix: str = "ecociente:test:"
+    test_redis_prefix: str = "ecociente:test:"  
 
 
     def __post_init__(self) -> None:
@@ -145,6 +152,12 @@ class Settings:
             allow_storage_fallback=_bool("ALLOW_STORAGE_FALLBACK", True),
             memory_max_messages=_int("MEMORY_MAX_MESSAGES", 20),
             memory_keep_recent_messages=_int("MEMORY_KEEP_RECENT_MESSAGES", 6),
+            neo4j_uri=_get("NEO4J_URI", "bolt://localhost:7687") ,
+            neo4j_username=_get("NEO4J_USERNAME", "neo4j") ,
+            neo4j_password=_get("NEO4J_PASSWORD", "neo4j") ,
+            neo4j_database=_get("NEO4J_DATABASE", "neo4j") ,
+            aura_instanceid=_get("AURA_INSTANCEID", "99999xxx") ,
+            aura_instancename=_get("AURA_INSTANCENAME", "My instance") ,
             knowledge_base_path=_get("KNOWLEDGE_BASE_PATH", "data/FAQ_KNOWLEDGE_BASE.md") or "data/FAQ_KNOWLEDGE_BASE.md",
             enable_external_source=_bool("ENABLE_EXTERNAL_SOURCE", True),
             external_source_url=_get("EXTERNAL_SOURCE_URL", "https://sinir.gov.br/") or "https://sinir.gov.br/",
@@ -170,6 +183,7 @@ class Settings:
             test_mongodb_database=_get("TEST_MONGODB_DATABASE", "ecociente_test") or "ecociente_test",
             test_redis_url=_get("TEST_REDIS_URL"),
             test_redis_prefix=_get("TEST_REDIS_PREFIX", "ecociente:test:") or "ecociente:test:",
+
         )
 
     def with_overrides(self, **changes: object) -> "Settings":

@@ -26,9 +26,9 @@ class AccessDecision:
 # sensíveis, mas nunca concedem um agente que o perfil não possui.
 ROLE_AGENT_ACCESS: dict[str, set[str]] = {
     USUARIO_COMUM: {"faq", "educacional"},
-    SINDICO_RESIDENCIAL: {"faq", "educacional", "analytics", "coletas"},
-    SINDICO_COMERCIAL: {"faq", "educacional", "analytics", "coletas"},
-    MORADOR_RESIDENCIAL: {"faq", "educacional", "analytics"},
+    SINDICO_RESIDENCIAL: {"faq", "educacional", "analytics", "coletas", "grafo"},
+    SINDICO_COMERCIAL: {"faq", "educacional", "analytics", "coletas", "grafo"},
+    MORADOR_RESIDENCIAL: {"faq", "educacional", "analytics", "grafo"},
     USUARIO_COMERCIAL: {"faq", "educacional", "analytics", "coletas"},
     COOPERATIVA: {"faq", "coletas"},
 }
@@ -45,6 +45,7 @@ ROLE_ACTION_ACCESS: dict[str, set[str]] = {
         "ranking_pessoal",
         "coleta_consultar",
         "coleta_gerenciar",
+        "grafo",
     },
     SINDICO_COMERCIAL: {
         "faq",
@@ -53,6 +54,7 @@ ROLE_ACTION_ACCESS: dict[str, set[str]] = {
         "analytics_macro",
         "coleta_consultar",
         "coleta_gerenciar",
+        "grafo",
     },
     MORADOR_RESIDENCIAL: {
         "faq",
@@ -61,6 +63,7 @@ ROLE_ACTION_ACCESS: dict[str, set[str]] = {
         "ranking_moradores",
         "ranking_torres",
         "ranking_pessoal",
+        "grafo",
     },
     USUARIO_COMERCIAL: {
         "faq",

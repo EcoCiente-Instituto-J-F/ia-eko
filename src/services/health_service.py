@@ -7,6 +7,7 @@ import psycopg2
 from psycopg2 import pool
 
 from src.core.config import Settings
+from src.database.neo4j import Neo4jDatabase
 from src.database.postgres import PostgresDatabase, PostgresUnavailable
 from src.integrations.calendar.client import CalendarApiClient
 from src.services.rag_service import RAGService
@@ -22,12 +23,14 @@ class HealthService:
         postgres: PostgresDatabase,
         *,
         calendar_api: CalendarApiClient | None = None,
+        neo4j: Neo4jDatabase | None = None,
     ):
         self.settings = settings
         self.sessions = sessions
         self.rag = rag
         self.postgres = postgres
         self.calendar_api = calendar_api
+        self.neo4j = neo4j
 
     async def check(self) -> dict[str, str]:
         services = await self.sessions.health()
@@ -35,7 +38,19 @@ class HealthService:
         services["llm"] = await self._llm_health()
         services["postgres"] = await self._postgres_health()
         services["calendar_api"] = await self._calendar_health()
+        services["neo4j"] = await self._neo4j_health()
         return services
+
+    async def _neo4j_health(self) -> str:
+        # Camada opcional (docs/REQUISITOS_E_FLUXOS.md): ao contrário do PostgreSQL,
+        # sua indisponibilidade não deve marcar o status geral como "degraded"
+        # (ver rota /health, que trata qualquer valor "error" como crítico).
+        if self.neo4j is None:
+            return "not_configured"
+        try:
+            return "ok" if await asyncio.wait_for(self.neo4j.ping(), timeout=3) else "unavailable"
+        except Exception:
+            return "unavailable"
 
     async def _calendar_health(self) -> str:
         if self.calendar_api is None:
