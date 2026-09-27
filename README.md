@@ -9,7 +9,7 @@
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![GitHub repo size](https://img.shields.io/github/repo-size/EcoCiente-Instituto-J-F/Eko?style=for-the-badge)
 ![GitHub last commit](https://img.shields.io/github/last-commit/EcoCiente-Instituto-J-F/Eko?style=for-the-badge)
-![License](https://img.shields.io/badge/license-a%20definir-lightgrey?style=for-the-badge)
+![License](https://img.shields.io/github/license/EcoCiente-Instituto-J-F/md-rpa-integration?style=for-the-badge)
 
 > API multiagente do EcoCiente: FastAPI + LangChain/LangGraph orquestrando especialistas (FAQ, educação ambiental, coletas, analytics e grafo de relacionamentos) com RAG, memória conversacional persistente, guardrails de entrada/saída e integrações MCP/A2A.
 
