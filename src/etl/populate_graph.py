@@ -312,3 +312,41 @@ class GraphPopulator:
             "MERGE (u)-[r:DENUNCIOU]->(p) "
             "SET r.peso = row.peso, r.motivo = row.motivo",
         )
+
+    # ------------------------------------------------------------------ #
+    # Utilitários de escrita em lote
+    # ------------------------------------------------------------------ #
+
+    async def _merge_nodes(self, label: str, rows: list[dict[str, Any]], merge_clause: str) -> int:
+        return await self._run_batched(merge_clause, rows, log_label=f"nós {label}")
+
+    async def _merge_edges(self, rows: list[dict[str, Any]], merge_clause: str) -> int:
+        return await self._run_batched(merge_clause, rows, log_label="relacionamentos")
+
+    async def _run_batched(self, merge_clause: str, rows: list[dict[str, Any]], *, log_label: str) -> int:
+        total = 0
+        query = f"UNWIND $rows AS row {merge_clause}"
+        for start in range(0, len(rows), _BATCH_SIZE):
+            batch = rows[start : start + _BATCH_SIZE]
+            await self.neo4j.execute(query, {"rows": batch})
+            total += len(batch)
+        logger.info("etl_grafo_lote", extra={"tipo": log_label, "total": total})
+        return total
+
+
+async def _main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    postgres_db.start(settings)
+    await neo4j_db.start(settings)
+    try:
+        populator = GraphPopulator()
+        stats = await populator.run()
+        for chave, valor in stats.items():
+            print(f"{chave}: {valor}")
+    finally:
+        await neo4j_db.close()
+        postgres_db.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(_main())
