@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,6 +11,7 @@ from src.api.routes import agents, chat, health, observability, ranking, root, s
 from src.core.config import Settings
 from src.core.logging import configure_logging
 from src.database.mongodb import mongo_db
+from src.database.neo4j import neo4j_db
 from src.database.postgres import postgres_db
 from src.database.redis import redis_db
 from src.integrations.a2a.server import add_a2a_endpoints
@@ -61,6 +63,16 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
             await sessions_service.start()
             await rag_service.start()
 
+            # Neo4j é uma camada opcional de inteligência sobre relacionamentos
+            # (docs/REQUISITOS_E_FLUXOS.md); sua ausência não deve derrubar a API.
+            try:
+                await neo4j_db.start(app_settings)
+            except Exception:
+                logging.getLogger("ecociente.main").warning(
+                    "Neo4j indisponível na inicialização; o agente 'grafo' responderá em modo indisponível.",
+                    exc_info=True,
+                )
+
             ranking_service = RankingService(redis_db)
             graph_runtime = EcoGraphRuntime(app_settings, sessions_service, rag_service, calendar_mcp)
 
@@ -79,6 +91,7 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
                 rag_service,
                 postgres_db,
                 calendar_api=calendar_api,
+                neo4j=neo4j_db,
             )
 
             yield
@@ -90,6 +103,7 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
             await sessions_service.close()
             await mongo_db.close()
             await redis_db.close()
+            await neo4j_db.close()
             await asyncio.to_thread(postgres_db.close)
 
     app = FastAPI(
