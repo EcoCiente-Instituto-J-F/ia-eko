@@ -312,6 +312,22 @@ Agradecemos às seguintes pessoas que contribuíram para este projeto:
         </sub>
       </a>
     </td>
+    <td align="center">
+      <a href="https://github.com/VDG419" title="Perfil no GitHub">
+        <img src="https://github.com/VDG419.png" width="100px;" alt="Foto de VDG419 no GitHub"/><br>
+        <sub>
+          <b>VDG419</b>
+        </sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/JulioCPMenezes" title="Perfil no GitHub">
+        <img src="https://github.com/JulioCPMenezes.png" width="100px;" alt="Foto de JulioCPMenezes no GitHub"/><br>
+        <sub>
+          <b>JulioCPMenezes</b>
+        </sub>
+      </a>
+    </td>
   </tr>
 </table>
 
