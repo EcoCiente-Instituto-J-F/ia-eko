@@ -86,6 +86,20 @@ class Settings:
     rag_chunk_size: int = 1000
     rag_chunk_overlap: int = 150
 
+    # FAQ por busca vetorial no Qdrant: responde com a `resposta_canonica` do
+    # payload, sem LLM. "rag" = fluxo antigo (FAISS + LLM).
+    faq_backend: str = "rag"
+    qdrant_url: str | None = None
+    qdrant_api_key: str | None = None
+    qdrant_collection: str = "faq"
+    qdrant_embedding_model: str = "intfloat/multilingual-e5-large"
+    qdrant_min_score: float = 0.80
+    qdrant_top_k: int = 3
+    qdrant_timeout: float = 10.0
+    # Sem resultado acima do score mínimo: usar o RAG+LLM antigo (true) ou
+    # responder que a base não tem a resposta (false, nenhum LLM chamado).
+    faq_llm_fallback: bool = False
+
     judge_max_corrections: int = 1
     a2a_public_url: str = "http://127.0.0.1:8000/a2a/jsonrpc/"
 
@@ -192,6 +206,15 @@ class Settings:
             rag_top_k=_int("RAG_TOP_K", 4),
             rag_chunk_size=_int("RAG_CHUNK_SIZE", 1000),
             rag_chunk_overlap=_int("RAG_CHUNK_OVERLAP", 150),
+            faq_backend=(_get("FAQ_BACKEND", "rag") or "rag").lower(),
+            qdrant_url=_get("QDRANT_URL"),
+            qdrant_api_key=_get("QDRANT_API_KEY"),
+            qdrant_collection=_get("QDRANT_COLLECTION", "faq") or "faq",
+            qdrant_embedding_model=_get("QDRANT_EMBEDDING_MODEL", "intfloat/multilingual-e5-large") or "intfloat/multilingual-e5-large",
+            qdrant_min_score=_float("QDRANT_MIN_SCORE", 0.80),
+            qdrant_top_k=_int("QDRANT_TOP_K", 3),
+            qdrant_timeout=_float("QDRANT_TIMEOUT", 10.0),
+            faq_llm_fallback=_bool("FAQ_LLM_FALLBACK", False),
             judge_max_corrections=_int("JUDGE_MAX_CORRECTIONS", 1),
             a2a_public_url=_get("A2A_PUBLIC_URL", "http://127.0.0.1:8000/a2a/jsonrpc/") or "http://127.0.0.1:8000/a2a/jsonrpc/",
             auth_api_url=_get("AUTH_API_URL"),
