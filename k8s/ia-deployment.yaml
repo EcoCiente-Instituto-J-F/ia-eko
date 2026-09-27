@@ -44,6 +44,11 @@ spec:
           envFrom:
             - configMapRef:
                 name: ia-eko-config
+            # Antes o Deployment não lia o Secret (chaves de LLM, bancos e tracing).
+            # optional: true mantém o pod subindo em modo mock sem o Secret criado.
+            - secretRef:
+                name: ia-eko-secret
+                optional: true
 
           startupProbe:
             httpGet:
