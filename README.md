@@ -53,7 +53,8 @@ O projeto está em desenvolvimento ativo. Estado atual:
 - [x] CI no GitHub Actions rodando a suíte `pytest`
 - [x] Endpoint `/api/v1/agents` lista o especialista `grafo`
 - [x] Import quebrado corrigido em `tests/test_external_integrations.py` (testes reescritos para a arquitetura MCP atual — `CalendarMcpClient`/`CalendarTools`)
-- [x] `load_dotenv()` isolado em `src/core/config.py` (`src/services/qdrant_service.py` era código órfão — nada o importava e sua própria dependência `qdrant-client` nunca chegou a entrar no `requirements.txt` — e foi removido)
+- [x] `load_dotenv()` isolado em `src/core/config.py` (o `qdrant_service.py` agora lê a configuração de `Settings`)
+- [x] FAQ por busca vetorial no Qdrant (`FAQ_BACKEND=qdrant`): responde com a `resposta_canonica` da coleção, sem LLM
 - [x] Pipeline de povoamento do grafo Neo4j a partir do PostgreSQL (`python -m src.etl.populate_graph`; ver `src/etl/populate_graph.py` para o mapeamento nó a nó/relação a relação e as duas relações fora do escopo desta primeira versão)
 - [x] Licença MIT adicionada (`LICENSE`)
 - [x] Juízes e orquestrador aceitam o JSON que os próprios prompts pedem (antes, com LLM real, o juiz de saída reprovava 100% das respostas e o de entrada nunca bloqueava)
@@ -254,6 +255,38 @@ por `mask_pii` (CPF, CNPJ, e-mail, telefone, CEP, JWT e chaves como `token`/`sen
 | --- | --- |
 | Prometheus/Grafana | Quanto e quão rápido: latência por agente, taxa de reprovação do juiz, tokens/min, recusas por limite |
 | Langfuse/LangSmith | O que aconteceu nesta conversa: prompt, resposta, tokens e decisão de cada agente |
+
+### FAQ via Qdrant (sem LLM)
+
+Com `FAQ_BACKEND=qdrant`, o especialista `faq` não chama LLM:
+
+1. A pergunta vira embedding localmente (`fastembed`, `intfloat/multilingual-e5-large`,
+   prefixo `query: `). Nenhuma chamada de API é feita nessa etapa.
+2. A coleção `QDRANT_COLLECTION` é consultada. O payload de cada ponto tem `faq_id`, `titulo`,
+   `intencao`, `perfis_relacionados`, `resposta_canonica`, `palavras_chave` e `tipo`.
+3. O resultado usado é o primeiro que tiver score acima de `QDRANT_MIN_SCORE` e cujos
+   `perfis_relacionados` incluam o perfil do usuário (lista vazia vale para todos). A
+   `resposta_canonica` dele é a resposta final. Por ser texto curado, o juiz de saída também
+   não chama LLM.
+4. Se nenhum resultado passar: com `FAQ_LLM_FALLBACK=false` (padrão), a resposta diz que a base
+   não tem essa pergunta; com `true`, cai no RAG + LLM antigo.
+
+```env
+FAQ_BACKEND=qdrant
+QDRANT_URL=https://<cluster>.cloud.qdrant.io
+QDRANT_API_KEY=...
+QDRANT_COLLECTION=faq
+QDRANT_MIN_SCORE=0.80
+```
+
+> [!WARNING]
+> A coleção precisa ter sido indexada com o **mesmo** modelo de embedding (1024 dimensões) e com
+> o prefixo `passage: ` nos documentos. O modelo tem ~2,2 GB e é baixado no primeiro uso; a
+> primeira pergunta de FAQ depois de subir a API é lenta. Calibre `QDRANT_MIN_SCORE` com
+> perguntas reais: scores do e5 costumam ficar concentrados entre 0,75 e 0,90.
+
+O orquestrador e o juiz de entrada continuam sendo LLM: a busca vetorial substitui a geração da
+resposta do FAQ, não o roteamento.
 
 ### Carga do grafo
 
