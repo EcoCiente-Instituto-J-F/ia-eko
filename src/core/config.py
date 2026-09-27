@@ -99,6 +99,32 @@ class Settings:
     run_calendar_integration_tests: bool = False
     allow_test_identity_headers: bool = False
 
+    # Tracing de LLM (Langfuse/LangSmith). "none" = desligado.
+    tracing_provider: str = "none"
+    tracing_mask_pii: bool = True
+    tracing_in_mock: bool = False
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "http://localhost:3000"
+    langsmith_api_key: str | None = None
+    langsmith_project: str = "ecociente-ia"
+
+    # Limites de uso. Cota diária = respostas do /chat por usuário por dia
+    # (fuso QUOTA_TIMEZONE). 0 ou negativo = sem limite para o perfil.
+    quota_enabled: bool = True
+    quota_timezone: str = "America/Sao_Paulo"
+    quota_usuario_comum: int = 20
+    quota_morador_residencial: int = 40
+    quota_usuario_comercial: int = 50
+    quota_cooperativa: int = 80
+    quota_sindico_residencial: int = 100
+    quota_sindico_comercial: int = 100
+    # Perfis cuja sessão é encerrada antes de disparar o resumo de memória
+    # (evita a chamada extra de LLM). Separados por vírgula.
+    quota_no_compaction_profiles: str = "USUARIO_COMUM"
+    # Anti-rajada: requisições por minuto por usuário, qualquer perfil.
+    rate_limit_per_minute: int = 10
+
     # Integração real. Nunca devem apontar para produção quando APP_ENV=test.
     run_integration_tests: bool = False
     test_postgres_url: str | None = None
@@ -177,6 +203,24 @@ class Settings:
             calendar_test_bearer_token=_get("CALENDAR_TEST_BEARER_TOKEN"),
             run_calendar_integration_tests=_bool("RUN_CALENDAR_INTEGRATION_TESTS", False),
             allow_test_identity_headers=_bool("ALLOW_TEST_IDENTITY_HEADERS", False),
+            tracing_provider=(_get("TRACING_PROVIDER", "none") or "none").lower(),
+            tracing_mask_pii=_bool("TRACING_MASK_PII", True),
+            tracing_in_mock=_bool("TRACING_IN_MOCK", False),
+            langfuse_public_key=_get("LANGFUSE_PUBLIC_KEY"),
+            langfuse_secret_key=_get("LANGFUSE_SECRET_KEY"),
+            langfuse_host=_get("LANGFUSE_HOST", "http://localhost:3000") or "http://localhost:3000",
+            langsmith_api_key=_get("LANGSMITH_API_KEY"),
+            langsmith_project=_get("LANGSMITH_PROJECT", "ecociente-ia") or "ecociente-ia",
+            quota_enabled=_bool("QUOTA_ENABLED", True),
+            quota_timezone=_get("QUOTA_TIMEZONE", "America/Sao_Paulo") or "America/Sao_Paulo",
+            quota_usuario_comum=_int("QUOTA_USUARIO_COMUM", 20),
+            quota_morador_residencial=_int("QUOTA_MORADOR_RESIDENCIAL", 40),
+            quota_usuario_comercial=_int("QUOTA_USUARIO_COMERCIAL", 50),
+            quota_cooperativa=_int("QUOTA_COOPERATIVA", 80),
+            quota_sindico_residencial=_int("QUOTA_SINDICO_RESIDENCIAL", 100),
+            quota_sindico_comercial=_int("QUOTA_SINDICO_COMERCIAL", 100),
+            quota_no_compaction_profiles=_get("QUOTA_NO_COMPACTION_PROFILES", "USUARIO_COMUM") or "",
+            rate_limit_per_minute=_int("RATE_LIMIT_PER_MINUTE", 10),
             run_integration_tests=_bool("RUN_INTEGRATION_TESTS", False),
             test_postgres_url=_get("TEST_POSTGRES_URL"),
             test_mongodb_uri=_get("TEST_MONGODB_URI"),
