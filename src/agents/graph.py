@@ -29,6 +29,8 @@ from src.services.rag_service import RAGService
 from src.integrations.mcp.client import CalendarMcpClient
 from src.services.session_service import SessionService
 from src.services.memory_summarizer_service import MemorySummarizerService
+from src.services.qdrant_service import QdrantFaqService
+from src.api.schemas.common import SourceResponse
 from src.security.guardrails import sanitize_output, validate_input
 
 logger = logging.getLogger("ecociente.graph")
@@ -42,6 +44,7 @@ class EcoGraphRuntime:
         rag: RAGService,
         calendar_mcp: CalendarMcpClient,
         tracing: TracingService | None = None,
+        faq_search: QdrantFaqService | None = None,
     ):
         self.settings = settings
         self.sessions = sessions
@@ -50,6 +53,7 @@ class EcoGraphRuntime:
         self.agents = AgentSuite(settings, self.tracing)
         self.memory_summarizer = MemorySummarizerService(settings, model=self.agents.model, tracing=self.tracing)
         self.collection_agent = CollectionAgent(calendar_mcp)
+        self.faq_search = faq_search
         self.graph = self._build_graph()
 
     @staticmethod
@@ -221,7 +225,59 @@ class EcoGraphRuntime:
         }
 
     async def faq(self, state: EcoState) -> dict[str, Any]:
+        if self.settings.faq_backend == "qdrant" and self.faq_search is not None:
+            return await self._faq_qdrant(state)
         return await self._rag_specialist(state, "faq")
+
+    async def _faq_qdrant(self, state: EcoState) -> dict[str, Any]:
+        """FAQ por busca vetorial: devolve a resposta canônica, sem LLM.
+
+        Sem resultado acima de QDRANT_MIN_SCORE (ou Qdrant fora do ar), usa o
+        RAG+LLM antigo só se FAQ_LLM_FALLBACK=true."""
+        started = time.perf_counter()
+        user_context = state.get("user_context")
+        perfil = user_context.perfil if user_context else None
+        melhor = None
+        try:
+            faqs = await self.faq_search.buscar_faq(state["mensagem"])
+            melhor = self.faq_search.melhor_resposta(faqs, perfil)
+        except Exception:
+            logger.warning("faq_qdrant_falhou", exc_info=True)
+            if self.settings.faq_llm_fallback:
+                return await self._rag_specialist(state, "faq")
+            return {
+                **self._mark(state, "faq", started),
+                "candidate_answer": "A base de perguntas frequentes está indisponível no momento. Tente novamente em instantes.",
+                "sources": [],
+                "agent": "faq",
+                "faq_canonica": True,
+            }
+
+        if melhor is None:
+            if self.settings.faq_llm_fallback:
+                return await self._rag_specialist(state, "faq")
+            return {
+                **self._mark(state, "faq", started),
+                "candidate_answer": (
+                    "Não encontrei essa resposta nas perguntas frequentes do EcoCiente. "
+                    "Tente reformular a pergunta ou fale com o síndico do seu condomínio."
+                ),
+                "sources": [],
+                "agent": "faq",
+                "faq_canonica": True,
+            }
+
+        source = SourceResponse(
+            title=str(melhor.get("titulo") or "FAQ EcoCiente"),
+            source=f"qdrant:{self.faq_search.collection_name}/{melhor.get('faq_id')}",
+        )
+        return {
+            **self._mark(state, "faq", started),
+            "candidate_answer": str(melhor["resposta_canonica"]).strip(),
+            "sources": [source],
+            "agent": "faq",
+            "faq_canonica": True,
+        }
 
     async def educacional(self, state: EcoState) -> dict[str, Any]:
         return await self._rag_specialist(state, "educacional")
@@ -286,7 +342,17 @@ class EcoGraphRuntime:
     async def juiz_saida(self, state: EcoState) -> dict[str, Any]:
         started = time.perf_counter()
         candidate = state.get("candidate_answer", "")
-        if state.get("route") == "coletas":
+        if state.get("faq_canonica"):
+            # Resposta canônica do Qdrant: texto curado e já revisado na base, não
+            # gerado por LLM. Passar pelo juiz LLM anularia a economia da busca.
+            decision = {
+                "aprovado": bool(candidate.strip()),
+                "motivo": "resposta_canonica_qdrant",
+                "categoria": "aprovado" if candidate.strip() else "resposta_vazia",
+                "necessita_correcao": False,
+                "resposta_censurada": None,
+            }
+        elif state.get("route") == "coletas":
             # A resposta é derivada diretamente da API externa; evitar uma
             # segunda execução por correção impede mutações duplicadas.
             decision = {
@@ -451,6 +517,7 @@ class EcoGraphRuntime:
         "blocked_reason": "",
         "corrections": 0,
         "memory_compaction_error": None,
+        "faq_canonica": False,
     }
 
     def _turn_state(self, initial_state: EcoState) -> EcoState:
