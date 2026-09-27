@@ -1,0 +1,93 @@
+# Agendamento do pipeline PostgreSQL → Neo4j (src/etl/populate_graph.py).
+#   - incremental a cada 15 minutos
+#   - full diário às 03:00 (horário de Brasília), que também remove postagens
+#     excluídas do Postgres (--prune)
+# concurrencyPolicy: Forbid impede duas cargas simultâneas no mesmo grafo.
+# Requer Kubernetes >= 1.27 para o campo timeZone.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ia-eko-graph-etl-incremental
+  namespace: ecociente
+  labels:
+    app: ia-eko-graph-etl
+    app.kubernetes.io/name: ia-eko-graph-etl
+    app.kubernetes.io/part-of: ecociente
+spec:
+  schedule: "*/15 * * * *"
+  timeZone: "America/Sao_Paulo"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 840
+      template:
+        metadata:
+          labels:
+            app: ia-eko-graph-etl
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: graph-etl
+              image: ecociente/ecociente:ia-eko-1.0.1
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-m", "src.etl.populate_graph", "--mode", "incremental"]
+              envFrom:
+                - configMapRef:
+                    name: ia-eko-config
+                - secretRef:
+                    name: ia-eko-secret
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ia-eko-graph-etl-full
+  namespace: ecociente
+  labels:
+    app: ia-eko-graph-etl
+    app.kubernetes.io/name: ia-eko-graph-etl
+    app.kubernetes.io/part-of: ecociente
+spec:
+  schedule: "0 3 * * *"
+  timeZone: "America/Sao_Paulo"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 1800
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: ia-eko-graph-etl
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: graph-etl
+              image: ecociente/ecociente:ia-eko-1.0.1
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-m", "src.etl.populate_graph", "--mode", "full", "--prune"]
+              envFrom:
+                - configMapRef:
+                    name: ia-eko-config
+                - secretRef:
+                    name: ia-eko-secret
+              resources:
+                requests:
+                  cpu: "250m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "1"
+                  memory: "1Gi"

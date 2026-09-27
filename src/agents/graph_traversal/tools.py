@@ -8,16 +8,14 @@ from neo4j.exceptions import Neo4jError
 from pydantic import BaseModel, Field
 
 from src.database.neo4j import neo4j_db
+from src.etl.graph_model import NODE_LABELS, RELATIONSHIP_TYPES
 
 logger = logging.getLogger("ecociente.grafo")
 
-# Rótulos e tipos de relação suportados pelo domínio do EcoCiente
-# (docs/REQUISITOS_E_FLUXOS.md, seção "Neo4j no contexto da arquitetura do sistema").
-_LABELS_PERMITIDOS = {"Usuario", "Condominio", "Torre", "Cooperativa", "Postagem", "Material", "Conteudo"}
-_RELACOES_PERMITIDAS = {
-    "PERTENCE_A", "POSSUI", "CRIOU", "VALIDOU", "DENUNCIOU",
-    "TEM_DIFICULDADE_EM", "RECOMENDADO_PARA",
-}
+# Mesmo vocabulário que o ETL (src/etl/populate_graph.py) realmente escreve.
+# Whitelist obrigatória: labels e tipos de relação são interpolados no Cypher.
+_LABELS_PERMITIDOS = set(NODE_LABELS)
+_RELACOES_PERMITIDAS = set(RELATIONSHIP_TYPES)
 
 
 def _grafo_failure(exc: Exception) -> dict[str, str]:

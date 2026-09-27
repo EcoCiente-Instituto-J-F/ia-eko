@@ -1,0 +1,56 @@
+# Regras avaliadas pelo Prometheus (aba "Alerts" em http://localhost:9090/alerts).
+# Não há Alertmanager no compose: os alertas ficam visíveis na UI, sem notificação.
+groups:
+  - name: ecociente-ia
+    rules:
+      - alert: ApiIndisponivel
+        expr: up{job="ecociente-ia"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A API do EcoCiente IA não responde ao Prometheus."
+
+      - alert: LatenciaChatAlta
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(ecociente_http_request_duration_seconds_bucket{route="/api/v1/chat"}[5m]))
+          ) > 15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 do /chat acima de 15s nos últimos 10 minutos."
+
+      - alert: JuizReprovandoDemais
+        # Taxa de reprovação do juiz de saída > 30% em algum especialista.
+        expr: |
+          (
+            sum by (agent) (rate(ecociente_judge_decisions_total{outcome="rejected"}[15m]))
+            /
+            sum by (agent) (rate(ecociente_judge_decisions_total[15m]))
+          ) > 0.30
+          and sum by (agent) (increase(ecociente_judge_decisions_total[15m])) > 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Juiz reprovando mais de 30% das respostas de {{ $labels.agent }}."
+
+      - alert: SaidaInvalidaDosJuizes
+        # O LLM está devolvendo algo que nem o parser tolerante entende:
+        # geralmente prompt quebrado ou troca de modelo.
+        expr: |
+          (sum(increase(ecociente_judge_decisions_total{category="saida_invalida"}[15m])) or vector(0))
+          + (sum(increase(ecociente_input_judge_decisions_total{category="saida_invalida"}[15m])) or vector(0)) > 5
+        labels:
+          severity: warning
+        annotations:
+          summary: "Juízes devolvendo saída ilegível (verificar prompt/modelo)."
+
+      - alert: MuitasRecusasPorLimite
+        expr: sum by (kind) (increase(ecociente_quota_rejected_total[1h])) > 50
+        labels:
+          severity: info
+        annotations:
+          summary: "Mais de 50 recusas por limite ({{ $labels.kind }}) na última hora — revisar as cotas."

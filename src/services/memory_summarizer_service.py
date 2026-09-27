@@ -7,15 +7,17 @@ from typing import Any
 from src.core.config import Settings
 from src.core.llm import build_chat_model
 from src.observability.metrics import LLM_LATENCY
+from src.observability.tracing import TracingService, record_usage
 from src.prompts.shared.memory import MEMORY_SUMMARIZER_PROMPT
 
 
 class MemorySummarizerService:
     """Consolida memória antiga; nunca responde diretamente ao usuário."""
 
-    def __init__(self, settings: Settings, model: Any | None = None):
+    def __init__(self, settings: Settings, model: Any | None = None, tracing: TracingService | None = None):
         self.settings = settings
         self.model = model if model is not None else build_chat_model(settings)
+        self.tracing = tracing or TracingService(settings)
 
     async def summarize(self, previous_summary: str | None, messages: list[dict[str, Any]]) -> str:
         if self.settings.llm_provider == "mock":
@@ -35,11 +37,13 @@ class MemorySummarizerService:
             [
                 {"role": "system", "content": MEMORY_SUMMARIZER_PROMPT},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ]
+            ],
+            config=self.tracing.run_config("memory_summarizer") or None,
         )
         LLM_LATENCY.labels(provider=self.settings.llm_provider, agent="memory_summarizer").observe(
             time.perf_counter() - started
         )
+        record_usage(provider=self.settings.llm_provider, agent="memory_summarizer", messages=[result])
         content = getattr(result, "content", result)
         if isinstance(content, str):
             return content.strip()

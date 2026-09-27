@@ -1,0 +1,58 @@
+{"id": "r001", "mensagem": "Quando é a próxima coleta aqui no condomínio?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "coletas", "dificuldade": "facil"}
+{"id": "r002", "mensagem": "Qual o dia que o caminhão da reciclagem passa?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "coletas", "dificuldade": "facil"}
+{"id": "r003", "mensagem": "Liste os agendamentos confirmados deste mês", "perfil": "SINDICO_RESIDENCIAL", "esperado": "coletas", "dificuldade": "facil"}
+{"id": "r004", "mensagem": "Quero agendar uma coleta avulsa para sexta", "perfil": "SINDICO_COMERCIAL", "esperado": "coletas", "dificuldade": "facil"}
+{"id": "r005", "mensagem": "A cooperativa confirmou a passagem de amanhã?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "coletas", "dificuldade": "media"}
+{"id": "r006", "mensagem": "Tem coleta recorrente cadastrada toda terça?", "perfil": "USUARIO_COMERCIAL", "esperado": "coletas", "dificuldade": "media"}
+{"id": "r007", "mensagem": "Mostre minha agenda de coletas da semana", "perfil": "COOPERATIVA", "esperado": "coletas", "dificuldade": "facil"}
+{"id": "r008", "mensagem": "Preciso remarcar a coleta de quinta para segunda", "perfil": "SINDICO_RESIDENCIAL", "esperado": "coletas", "dificuldade": "facil"}
+{"id": "r009", "mensagem": "A coleta de ontem foi realizada ou cancelada?", "perfil": "SINDICO_COMERCIAL", "esperado": "coletas", "dificuldade": "media"}
+{"id": "r010", "mensagem": "Vou conseguir passar no condomínio 12 às 9h, pode confirmar?", "perfil": "COOPERATIVA", "esperado": "coletas", "dificuldade": "media"}
+{"id": "r011", "mensagem": "O calendário de outubro já está disponível?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "coletas", "dificuldade": "media"}
+{"id": "r012", "mensagem": "Esqueci de separar o lixo e o caminhão já passou, quando volta?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "coletas", "dificuldade": "dificil"}
+{"id": "r013", "mensagem": "Isopor é reciclável?", "perfil": "USUARIO_COMUM", "esperado": "educacional", "dificuldade": "facil"}
+{"id": "r014", "mensagem": "Como separar vidro quebrado com segurança?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "educacional", "dificuldade": "facil"}
+{"id": "r015", "mensagem": "Caixa de pizza engordurada vai no papel?", "perfil": "USUARIO_COMUM", "esperado": "educacional", "dificuldade": "facil"}
+{"id": "r016", "mensagem": "Como começar uma composteira no apartamento?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "educacional", "dificuldade": "facil"}
+{"id": "r017", "mensagem": "Qual a diferença entre lixo orgânico e rejeito?", "perfil": "USUARIO_COMUM", "esperado": "educacional", "dificuldade": "facil"}
+{"id": "r018", "mensagem": "Preciso lavar as embalagens antes de descartar?", "perfil": "USUARIO_COMUM", "esperado": "educacional", "dificuldade": "facil"}
+{"id": "r019", "mensagem": "Onde descarto pilhas e baterias?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "educacional", "dificuldade": "media"}
+{"id": "r020", "mensagem": "Tampinha de garrafa vai junto com a garrafa PET?", "perfil": "USUARIO_COMERCIAL", "esperado": "educacional", "dificuldade": "facil"}
+{"id": "r021", "mensagem": "O que dá para plantar numa horta com adubo da compostagem?", "perfil": "USUARIO_COMUM", "esperado": "educacional", "dificuldade": "media"}
+{"id": "r022", "mensagem": "Óleo de cozinha usado pode ir pelo ralo?", "perfil": "USUARIO_COMUM", "esperado": "educacional", "dificuldade": "facil"}
+{"id": "r023", "mensagem": "Tem algum curso sobre reciclagem na plataforma?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "educacional", "dificuldade": "media"}
+{"id": "r024", "mensagem": "Embalagem longa vida é papel ou plástico?", "perfil": "USUARIO_COMUM", "esperado": "educacional", "dificuldade": "facil"}
+{"id": "r025", "mensagem": "Quantos pontos eu fiz este mês?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "analytics", "dificuldade": "facil"}
+{"id": "r026", "mensagem": "Qual material mais reciclado no condomínio?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "analytics", "dificuldade": "facil"}
+{"id": "r027", "mensagem": "Qual minha posição no ranking da torre?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "analytics", "dificuldade": "facil"}
+{"id": "r028", "mensagem": "Como evoluiu a reciclagem nos últimos 3 meses?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "analytics", "dificuldade": "facil"}
+{"id": "r029", "mensagem": "Compare as torres A e B em volume de postagens", "perfil": "SINDICO_RESIDENCIAL", "esperado": "analytics", "dificuldade": "media"}
+{"id": "r030", "mensagem": "Qual a taxa de aprovação das postagens do condomínio?", "perfil": "SINDICO_COMERCIAL", "esperado": "analytics", "dificuldade": "facil"}
+{"id": "r031", "mensagem": "Quantas postagens minhas foram reprovadas?", "perfil": "USUARIO_COMERCIAL", "esperado": "analytics", "dificuldade": "facil"}
+{"id": "r032", "mensagem": "Mostre o top 10 moradores do ciclo", "perfil": "SINDICO_RESIDENCIAL", "esperado": "analytics", "dificuldade": "facil"}
+{"id": "r033", "mensagem": "Meu desempenho melhorou em relação ao mês passado?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "analytics", "dificuldade": "media"}
+{"id": "r034", "mensagem": "Qual percentual de plástico nas postagens da semana?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "analytics", "dificuldade": "media"}
+{"id": "r035", "mensagem": "Quantas pessoas da minha torre reciclaram vidro?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "analytics", "dificuldade": "dificil"}
+{"id": "r036", "mensagem": "Quem reciclou mais: a torre 1 ou a torre 2?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "analytics", "dificuldade": "dificil"}
+{"id": "r037", "mensagem": "Qual o caminho entre o morador 15 e a cooperativa EcoRecicla?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "grafo", "dificuldade": "facil"}
+{"id": "r038", "mensagem": "Quem influencia a reciclagem na minha torre?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "grafo", "dificuldade": "facil"}
+{"id": "r039", "mensagem": "Existe alguma conexão entre a torre B e a cooperativa que atende o condomínio?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "grafo", "dificuldade": "media"}
+{"id": "r040", "mensagem": "Quais usuários estão diretamente conectados ao síndico?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "grafo", "dificuldade": "media"}
+{"id": "r041", "mensagem": "Quem são os moradores mais conectados do condomínio?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "grafo", "dificuldade": "media"}
+{"id": "r042", "mensagem": "Quem validou as postagens do usuário 42?", "perfil": "SINDICO_COMERCIAL", "esperado": "grafo", "dificuldade": "dificil"}
+{"id": "r043", "mensagem": "Mostre a rede de relacionamentos entre as torres do condomínio", "perfil": "SINDICO_RESIDENCIAL", "esperado": "grafo", "dificuldade": "media"}
+{"id": "r044", "mensagem": "Como o morador 8 está ligado à cooperativa?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "grafo", "dificuldade": "facil"}
+{"id": "r045", "mensagem": "Quem denunciou postagens de quem na torre C?", "perfil": "SINDICO_RESIDENCIAL", "esperado": "grafo", "dificuldade": "dificil"}
+{"id": "r046", "mensagem": "Quais cooperativas se relacionam com o meu condomínio?", "perfil": "SINDICO_COMERCIAL", "esperado": "grafo", "dificuldade": "media"}
+{"id": "r047", "mensagem": "Como funciona a validação das postagens?", "perfil": "USUARIO_COMUM", "esperado": "faq", "dificuldade": "facil"}
+{"id": "r048", "mensagem": "Quais dados o síndico pode ver sobre mim?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "faq", "dificuldade": "facil"}
+{"id": "r049", "mensagem": "Posso postar a mesma foto duas vezes?", "perfil": "USUARIO_COMUM", "esperado": "faq", "dificuldade": "facil"}
+{"id": "r050", "mensagem": "O que acontece se eu denunciar uma postagem injustamente?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "faq", "dificuldade": "media"}
+{"id": "r051", "mensagem": "Como eu entro em um condomínio na plataforma?", "perfil": "USUARIO_COMUM", "esperado": "faq", "dificuldade": "facil"}
+{"id": "r052", "mensagem": "Vocês emitem laudo ou certificado de reciclagem?", "perfil": "SINDICO_COMERCIAL", "esperado": "faq", "dificuldade": "media"}
+{"id": "r053", "mensagem": "Qual o prazo para uma postagem ser analisada?", "perfil": "USUARIO_COMUM", "esperado": "faq", "dificuldade": "facil"}
+{"id": "r054", "mensagem": "Como os pontos são calculados?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "faq", "dificuldade": "dificil"}
+{"id": "r055", "mensagem": "Quem pode aprovar a entrada de um novo morador?", "perfil": "MORADOR_RESIDENCIAL", "esperado": "faq", "dificuldade": "media"}
+{"id": "r056", "mensagem": "O que é o trust score?", "perfil": "USUARIO_COMUM", "esperado": "faq", "dificuldade": "media"}
+{"id": "r057", "mensagem": "Posso excluir minha conta e meus dados?", "perfil": "USUARIO_COMUM", "esperado": "faq", "dificuldade": "facil"}
+{"id": "r058", "mensagem": "Qual o limite de respostas do assistente por dia?", "perfil": "USUARIO_COMUM", "esperado": "faq", "dificuldade": "media"}
