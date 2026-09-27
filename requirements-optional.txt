@@ -2,3 +2,6 @@
 -r requirements.txt
 langchain-groq>=1.0,<2
 langchain-google-genai>=3.0,<5
+
+# Tracing de LLM (TRACING_PROVIDER=langfuse). LangSmith já vem com o langchain.
+langfuse>=4,<5
