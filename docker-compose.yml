@@ -23,5 +23,65 @@ services:
 
       A2A_PUBLIC_URL: http://127.0.0.1:8000/a2a/jsonrpc/
 
+      # Langfuse roda em outro projeto compose (docker-compose.langfuse.yml) e
+      # expõe a porta 3000 no host; de dentro do contêiner, o host é host.docker.internal.
+      LANGFUSE_HOST: ${LANGFUSE_HOST_DOCKER:-http://host.docker.internal:3000}
+
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # ------------------------------------------------------------------
+  # Métricas: Prometheus coleta /metrics da API; Grafana já sobe com o
+  # datasource e o dashboard "EcoCiente IA" provisionados.
+  #   Prometheus: http://localhost:9090  (aba Alerts mostra as regras)
+  #   Grafana:    http://localhost:3001  (admin / GRAFANA_ADMIN_PASSWORD)
+  # Porta 3001 porque a 3000 é do Langfuse.
+  # ------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/ecociente.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+  # ------------------------------------------------------------------
+  # Carga contínua do grafo (opcional): incremental a cada 15 min e full a
+  # cada 24 h. Sobe só com:  docker compose --profile etl up -d
+  # ------------------------------------------------------------------
+  graph-etl:
+    build: .
+    profiles: ["etl"]
+    command: ["python", "-m", "src.etl.populate_graph", "--loop-seconds", "900", "--full-every-hours", "24"]
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
