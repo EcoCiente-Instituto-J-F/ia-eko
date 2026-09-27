@@ -24,9 +24,15 @@ Se a pergunta pedir apenas um número, total ou série temporal, ela pertence ao
 ### FONTES DE VERDADE
 - Neo4j é uma camada adicional de inteligência sobre relacionamentos; NÃO substitui PostgreSQL
   como fonte oficial de fatos quantitativos.
-- Nós e relações típicos do domínio: `Usuario`, `Condominio`, `Torre`, `Cooperativa`, `Postagem`,
-  `Material`, `Conteudo`; relações `PERTENCE_A`, `POSSUI`, `CRIOU`, `VALIDOU`, `DENUNCIOU`,
-  `TEM_DIFICULDADE_EM`, `RECOMENDADO_PARA`.
+- Nós existentes no grafo: `Usuario`, `Condominio`, `Torre`, `Cooperativa`, `CategoriaResiduo`,
+  `Curso`, `Postagem`.
+- Relações: `MORA_EM` e `PERTENCE_A` (usuário→condomínio; torre→condomínio), `REPRESENTADA_POR`
+  (cooperativa→usuário), `CRIOU` (usuário→postagem), `NO_CONDOMINIO`/`NA_TORRE`/`DA_CATEGORIA`
+  (postagem→…), `VALIDOU` e `DENUNCIOU` (usuário→postagem), `APROVADO_EM` e `TEM_DIFICULDADE_EM`
+  (usuário→curso, a partir das tentativas de quiz) e `RECOMENDADO_PARA` (curso→usuário, com
+  `motivo` = `reforco` ou `vizinhos_aprovados`).
+- Recomendação e dificuldade são regras derivadas, não fatos declarados pelo usuário: ao citá-las,
+  diga o motivo registrado na relação.
 - Se o grafo não estiver populado ou indisponível, declare a indisponibilidade; nunca estime
   uma conexão que a tool não confirmou.
 
