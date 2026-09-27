@@ -230,3 +230,108 @@ flowchart TD
     L -- reprovado, sem tentativas --> Z
     Z --> N[Resposta ao usuário]
 ```
+
+### Especialistas
+
+| Agente | Fonte de dados | Quando responde |
+| --- | --- | --- |
+| `faq` | RAG sobre `data/FAQ_KNOWLEDGE_BASE.md` | Regras, políticas e limites do assistente |
+| `educacional` | RAG sobre a mesma base + fonte externa (SINIR) | Separação de resíduos, compostagem, sustentabilidade |
+| `analytics` | PostgreSQL (leitura) + Redis (ranking) | Pontos, desempenho, métricas e comparações — sempre que a resposta é um número ou série |
+| `coletas` | API externa de calendário via MCP | Agendamento, recorrência e confirmação de coleta |
+| `grafo` | Neo4j | Caminho, conexão ou influência entre entidades — quando a resposta é a estrutura da relação, não uma métrica |
+
+O agente `grafo` é o mais recente: ele existe porque perguntas como *"quais moradores mais
+influenciam a reciclagem do condomínio?"* não são respondidas por uma agregação SQL — elas
+pedem a topologia da rede de relacionamentos (`Usuario`, `Condominio`, `Torre`, `Cooperativa`,
+`Postagem`, `Material`, `Conteudo` e relações como `PERTENCE_A`, `CRIOU`, `VALIDOU`,
+`DENUNCIOU`). Veja `docs/REQUISITOS_E_FLUXOS.md` para o racional completo e
+`src/agents/graph_traversal/tools.py` para as queries Cypher expostas ao LLM.
+
+### Arquitetura
+
+- `api/` — rotas FastAPI e injeção de dependência
+- `agents/` — grafo LangGraph e os especialistas (`analytics/`, `coleta/`, `graph_traversal/`)
+- `prompts/` — todo o conteúdo de sistema dos agentes, fora da infraestrutura
+- `services/` — casos de uso reutilizáveis (sessão, ranking, RAG, health, memória)
+- `database/` — lifecycle dos clientes/pools (PostgreSQL, MongoDB, Redis, Neo4j)
+- `integrations/` — MCP, A2A, autenticação e a API externa de calendário
+- `security/` — autenticação, autorização por perfil/ação e guardrails determinísticos
+
+Detalhes de decisões arquiteturais em `docs/ARQUITETURA.md`.
+
+## Testes
+
+```bash
+pytest
+```
+
+A suíte roda em `LLM_PROVIDER=mock` por padrão (sem custo de API — respostas determinísticas
+simulam cada agente). Testes de integração real (Postgres/MongoDB/Redis reais) ficam em
+`tests/integration/` e exigem `RUN_INTEGRATION_TESTS=true` com `APP_ENV=test`.
+
+## Estrutura do projeto
+
+```
+Eko/
+├── src/
+│   ├── api/                  # rotas, schemas, dependências FastAPI
+│   ├── agents/
+│   │   ├── graph.py          # StateGraph (LangGraph) — o pipeline inteiro
+│   │   ├── factory.py        # constrói os agentes LangChain / modo mock
+│   │   ├── analytics/        # tools PostgreSQL/Redis do especialista analytics
+│   │   ├── graph_traversal/  # tools Neo4j do especialista grafo
+│   │   └── coleta/           # integração MCP com a API de calendário
+│   ├── prompts/               # prompts de sistema de cada agente
+│   ├── services/               # sessão, ranking, RAG, memória, health
+│   ├── database/               # clientes/pools: postgres, mongodb, redis, neo4j
+│   ├── integrations/            # MCP, A2A, auth, calendário
+│   └── security/                # autenticação, policies, guardrails
+├── tests/                       # pytest (unitário + integration/)
+├── docs/                         # arquitetura, requisitos e referências técnicas
+├── sql/                          # schema PostgreSQL (DDL)
+├── k8s/                          # manifests Kubernetes
+├── scripts/pr-bot/               # geração automática de PR
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── .env.example
+```
+
+## Colaboradores
+
+Agradecemos às seguintes pessoas que contribuíram para este projeto:
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/shinitihm" title="Perfil no GitHub">
+        <img src="https://github.com/shinitihm.png" width="100px;" alt="Foto de shinitihm no GitHub"/><br>
+        <sub>
+          <b>shinitihm</b>
+        </sub>
+      </a>
+    </td>
+  </tr>
+</table>
+
+## Contribuindo
+
+Para contribuir com o projeto, siga estas etapas:
+
+1. Bifurque este repositório.
+2. Crie um branch: `git checkout -b <nome_branch>`.
+3. Faça suas alterações e confirme-as: `git commit -m '<mensagem_commit>'`
+4. Envie para o branch original: `git push origin <nome_branch>`
+5. Crie a solicitação de pull.
+
+Como alternativa, consulte a documentação do GitHub em [como criar uma solicitação pull](https://help.github.com/en/github/collaborating-with-issues-and-pull-requests/creating-a-pull-request).
+
+## 📝 Licença
+
+Esse projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+<div align="center">
+
+Desenvolvido por:
+
+<img src="assets/logo-ecociente.png" alt="EcoCiente - Dados que despertam a consciência" width="320"> </div>
