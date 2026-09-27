@@ -140,3 +140,55 @@ docker compose up -d
 > O `docker-compose.yml` deste repositório sobe o serviço `api`; os bancos de dados (Postgres,
 > MongoDB, Redis, Neo4j) precisam estar acessíveis nos endereços configurados no `.env` — ajuste
 > conforme seu ambiente local.
+
+## Usando
+
+Com as dependências no ar e o `.env` preenchido:
+
+```bash
+python -m uvicorn src.api.main:app --reload
+```
+
+A API sobe em `http://127.0.0.1:8000`. Endpoints principais:
+
+| Método | Rota | Descrição |
+| --- | --- | --- |
+| `POST` | `/api/v1/chat` | Envia uma mensagem e recebe a resposta do especialista roteado |
+| `GET` | `/api/v1/agents` | Lista os especialistas disponíveis |
+| `GET` | `/api/v1/sessions/{session_id}` | Consulta o estado de uma sessão de conversa |
+| `GET` | `/api/v1/rankings` | Ranking de reciclagem (morador ou torres, conforme perfil) |
+| `GET` | `/health` | Healthcheck agregado (LLM, Postgres, Mongo/Redis, RAG, Neo4j, calendário) |
+| `GET` | `/metrics` | Métricas Prometheus |
+| `GET` | `/docs` | Swagger UI (OpenAPI) |
+
+Exemplo de chamada (em `APP_ENV=test` com `ALLOW_TEST_IDENTITY_HEADERS=true`, sem precisar de
+token real):
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -H "X-Usuario-Id: 42" \
+  -H "X-Perfil: sindico_residencial" \
+  -H "X-Condominio-Id: 7" \
+  -d '{
+        "usuario_id": 42,
+        "session_id": null,
+        "mensagem": "Quais moradores mais influenciam a reciclagem do condomínio?"
+      }'
+```
+
+Resposta (resumida):
+
+```json
+{
+  "session_id": "…",
+  "agent": "grafo",
+  "answer": "…",
+  "agents_called": ["guardrail_entrada", "memoria", "verificar_compactacao", "orquestrador", "grafo", "juiz_saida", "guardrail_saida"],
+  "sources": [],
+  "judge": { "aprovado": true, "motivo": "…", "necessita_correcao": false }
+}
+```
+
+Em produção, o `Authorization: Bearer <token>` é obrigatório e a identidade vem da API de
+autenticação (`AUTH_API_URL`) — os headers `X-*` acima só funcionam com `APP_ENV=test`.
