@@ -185,3 +185,39 @@ class GraphPopulator:
             "MATCH (u:Usuario {id: row.usuario_id}), (c:Condominio {id: row.condominio_id}) "
             "MERGE (u)-[:MORA_EM]->(c)",
         )
+
+    async def _load_pertence_a(self) -> int:
+        rows = self.postgres.fetch_all(
+            """
+            SELECT
+                usuario_id,
+                condominio_id,
+                trust_score,
+                postagens_validadas_sem_contestacao,
+                denuncias_realizadas,
+                denuncias_procedentes
+            FROM tb_rel_usuarios_condominios
+            """
+        )
+        for row in rows:
+            if row.get("trust_score") is not None:
+                row["trust_score"] = float(row["trust_score"])
+        return await self._merge_edges(
+            rows,
+            "MATCH (u:Usuario {id: row.usuario_id}), (c:Condominio {id: row.condominio_id}) "
+            "MERGE (u)-[r:PERTENCE_A]->(c) "
+            "SET r.trust_score = row.trust_score, "
+            "    r.postagens_validadas_sem_contestacao = row.postagens_validadas_sem_contestacao, "
+            "    r.denuncias_realizadas = row.denuncias_realizadas, "
+            "    r.denuncias_procedentes = row.denuncias_procedentes",
+        )
+
+    async def _load_torre_pertence_a(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT id_torre AS torre_id, condominio_id FROM tb_torres"
+        )
+        return await self._merge_edges(
+            rows,
+            "MATCH (t:Torre {id: row.torre_id}), (c:Condominio {id: row.condominio_id}) "
+            "MERGE (t)-[:PERTENCE_A]->(c)",
+        )
