@@ -221,3 +221,94 @@ class GraphPopulator:
             "MATCH (t:Torre {id: row.torre_id}), (c:Condominio {id: row.condominio_id}) "
             "MERGE (t)-[:PERTENCE_A]->(c)",
         )
+
+    async def _load_cooperativa_representada_por(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT id_cooperativa AS cooperativa_id, usuario_id "
+            "FROM tb_cooperativas WHERE usuario_id IS NOT NULL"
+        )
+        return await self._merge_edges(
+            rows,
+            "MATCH (coop:Cooperativa {id: row.cooperativa_id}), (u:Usuario {id: row.usuario_id}) "
+            "MERGE (coop)-[:REPRESENTADA_POR]->(u)",
+        )
+
+    async def _load_criou(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT usuario_id, id_postagem AS postagem_id FROM tb_postagens"
+        )
+        return await self._merge_edges(
+            rows,
+            "MATCH (u:Usuario {id: row.usuario_id}), (p:Postagem {id: row.postagem_id}) "
+            "MERGE (u)-[:CRIOU]->(p)",
+        )
+
+    async def _load_postagem_no_condominio(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT id_postagem AS postagem_id, condominio_id FROM tb_postagens"
+        )
+        return await self._merge_edges(
+            rows,
+            "MATCH (p:Postagem {id: row.postagem_id}), (c:Condominio {id: row.condominio_id}) "
+            "MERGE (p)-[:NO_CONDOMINIO]->(c)",
+        )
+
+    async def _load_postagem_na_torre(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT id_postagem AS postagem_id, torre_id FROM tb_postagens WHERE torre_id IS NOT NULL"
+        )
+        return await self._merge_edges(
+            rows,
+            "MATCH (p:Postagem {id: row.postagem_id}), (t:Torre {id: row.torre_id}) "
+            "MERGE (p)-[:NA_TORRE]->(t)",
+        )
+
+    async def _load_postagem_da_categoria(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT id_postagem AS postagem_id, categoria_id FROM tb_postagens"
+        )
+        return await self._merge_edges(
+            rows,
+            "MATCH (p:Postagem {id: row.postagem_id}), (cat:CategoriaResiduo {id: row.categoria_id}) "
+            "MERGE (p)-[:DA_CATEGORIA]->(cat)",
+        )
+
+    async def _load_validou(self) -> int:
+        rows = self.postgres.fetch_all(
+            """
+            SELECT
+                v.usuario_id,
+                v.postagem_id,
+                v.peso_aplicado AS peso,
+                t.nome_tipo AS tipo
+            FROM tb_rel_votos_postagens v
+            JOIN tb_lkp_tipos_votos_postagens t ON t.id_tipo_voto = v.tipo_voto_id
+            WHERE v.motivo_denuncia_id IS NULL
+            """
+        )
+        return await self._merge_edges(
+            rows,
+            "MATCH (u:Usuario {id: row.usuario_id}), (p:Postagem {id: row.postagem_id}) "
+            "MERGE (u)-[r:VALIDOU]->(p) "
+            "SET r.peso = row.peso, r.tipo = row.tipo",
+        )
+
+    async def _load_denunciou(self) -> int:
+        rows = self.postgres.fetch_all(
+            """
+            SELECT
+                v.usuario_id,
+                v.postagem_id,
+                v.peso_aplicado AS peso,
+                m.descricao AS motivo
+            FROM tb_rel_votos_postagens v
+            JOIN tb_lkp_motivos_denuncia m ON m.id_motivo_denuncia = v.motivo_denuncia_id
+            WHERE v.motivo_denuncia_id IS NOT NULL
+            """
+        )
+        return await self._merge_edges(
+            rows,
+            "MATCH (u:Usuario {id: row.usuario_id}), (p:Postagem {id: row.postagem_id}) "
+            "MERGE (u)-[r:DENUNCIOU]->(p) "
+            "SET r.peso = row.peso, r.motivo = row.motivo",
+        )
