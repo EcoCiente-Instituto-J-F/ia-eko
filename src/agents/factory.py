@@ -23,9 +23,11 @@ class AgentSuite:
         from langchain.agents import create_agent
 
         from src.agents.analytics.tools import TOOLS as ANALYTICS_TOOLS
+        from src.agents.graph_traversal.tools import TOOLS as GRAFO_TOOLS
         from src.prompts.agents.analytics import ANALYTICS_PROMPT_COMPLETO
         from src.prompts.agents.educacional import EDUCADOR_PROMPT_COMPLETO
         from src.prompts.agents.faq import FAQ_PROMPT_COMPLETO
+        from src.prompts.agents.graph_traversal import GRAFO_PROMPT_COMPLETO
         from src.prompts.shared.judges import JUIZ_ENTRADA_PROMPT_COMPLETO, JUIZ_SAIDA_PROMPT_COMPLETO
         from src.prompts.shared.orchestrator import ORQUESTRADOR_PROMPT_COMPLETO
 
@@ -36,6 +38,7 @@ class AgentSuite:
             "faq": (FAQ_PROMPT_COMPLETO, []),
             "analytics": (ANALYTICS_PROMPT_COMPLETO, ANALYTICS_TOOLS),
             "educacional": (EDUCADOR_PROMPT_COMPLETO, []),
+            "grafo": (GRAFO_PROMPT_COMPLETO, GRAFO_TOOLS),
             "juiz_saida": (JUIZ_SAIDA_PROMPT_COMPLETO, []),
         }
         for name, (system_prompt, tools) in definitions.items():
@@ -81,7 +84,7 @@ class AgentSuite:
 
     @staticmethod
     def parse_route(text: str) -> str:
-        match = re.search(r"ROUTE\s*=\s*(coletas|educador|educacional|analytics|faq)", text, re.I)
+        match = re.search(r"ROUTE\s*=\s*(coletas|educador|educacional|analytics|grafo|faq)", text, re.I)
         if not match:
             return "faq"
         route = match.group(1).lower()
@@ -104,7 +107,9 @@ class AgentSuite:
         if agent_name == "juiz_entrada":
             return "STATUS=aprovado\nMENSAGEM_ORIGINAL=[mantida]"
         if agent_name == "orquestrador":
-            if any(w in lower for w in ["ranking", "desempenho", "mais reciclado", "estatística", "estatistica", "dashboard", "top 10", "evoluiu"]):
+            if any(w in lower for w in ["caminho entre", "conexão entre", "conexao entre", "conectado a", "influenciam a reciclagem", "quem influencia"]):
+                route = "grafo"
+            elif any(w in lower for w in ["ranking", "desempenho", "mais reciclado", "estatística", "estatistica", "dashboard", "top 10", "evoluiu"]):
                 route = "analytics"
             elif any(w in lower for w in ["coleta", "calendário", "calendario", "cooperativa", "agendamento", "recorrência", "recorrencia"]):
                 route = "coletas"
@@ -117,6 +122,11 @@ class AgentSuite:
             return (
                 "No modo mock não consulto dados reais de PostgreSQL/Redis. "
                 "A rota Analytics foi selecionada corretamente; conecte os bancos para obter métricas reais."
+            )
+        if agent_name == "grafo":
+            return (
+                "No modo mock não consulto o Neo4j. "
+                "A rota Grafo foi selecionada corretamente; conecte o Neo4j para obter conexões reais."
             )
         if agent_name in {"faq", "educacional", "coletas"}:
             marker = "CONTEXTO_RAG:\n"
