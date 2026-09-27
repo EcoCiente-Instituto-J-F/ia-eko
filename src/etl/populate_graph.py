@@ -41,6 +41,12 @@ Idempotência: todo relacionamento e nó é escrito com `MERGE` (nunca
 Postgres não duplica nós nem arestas — ao contrário do comportamento
 conhecido do repositório irmão `md-rpa-integration`.
 
+Constraints: antes de qualquer carga, `GraphPopulator._ensure_constraints()`
+garante (via `CREATE CONSTRAINT IF NOT EXISTS`) uma constraint de unicidade
+de `id` para cada label. Sem isso, todo `MERGE {id: ...}` faz varredura
+completa do label a cada chamada — o schema Postgres de origem já tem mais
+de dez índices equivalentes; o grafo não tinha nenhum.
+
 Uso:
     python -m src.etl.populate_graph
 """
@@ -71,6 +77,8 @@ class GraphPopulator:
     async def run(self) -> dict[str, int]:
         stats: dict[str, int] = {}
 
+        await self._ensure_constraints()
+
         stats["usuarios"] = await self._load_usuarios()
         stats["condominios"] = await self._load_condominios()
         stats["torres"] = await self._load_torres()
@@ -91,6 +99,26 @@ class GraphPopulator:
 
         logger.info("etl_grafo_concluido", extra={"stats": stats})
         return stats
+
+    # ------------------------------------------------------------------ #
+    # Constraints / índices
+    # ------------------------------------------------------------------ #
+
+    # Uma constraint de unicidade por label de nó, todas sobre `id` (a mesma
+    # chave usada em todo `MERGE` deste pipeline). `IF NOT EXISTS` torna a
+    # criação idempotente — seguro rodar a cada execução do pipeline.
+    _NODE_LABELS = ("Usuario", "Condominio", "Torre", "Cooperativa", "CategoriaResiduo", "Postagem")
+
+    async def _ensure_constraints(self) -> None:
+        """Cria (se ainda não existirem) as constraints de unicidade de `id`
+        para cada label. Sem elas, todo `MERGE` por `id` faz varredura completa
+        do label — o schema Postgres de origem já tem mais de 10 índices
+        equivalentes (`sql/ecociente_schema.sql`), e o grafo não tinha nenhum."""
+        for label in self._NODE_LABELS:
+            await self.neo4j.execute(
+                f"CREATE CONSTRAINT IF NOT EXISTS FOR (n:{label}) REQUIRE n.id IS UNIQUE"
+            )
+        logger.info("etl_grafo_constraints_garantidas", extra={"labels": self._NODE_LABELS})
 
     # ------------------------------------------------------------------ #
     # Nós
