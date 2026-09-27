@@ -192,3 +192,41 @@ Resposta (resumida):
 
 Em produção, o `Authorization: Bearer <token>` é obrigatório e a identidade vem da API de
 autenticação (`AUTH_API_URL`) — os headers `X-*` acima só funcionam com `APP_ENV=test`.
+
+### Docker
+
+```bash
+docker build -t ecociente-ia .
+docker run --env-file .env -p 8000:8000 ecociente-ia
+```
+
+### Kubernetes
+
+Manifests prontos em `k8s/` (namespace, ConfigMap, Secret de exemplo, Deployment e Service com
+`app.kubernetes.io/name: ia-eko`).
+
+## Como funciona
+
+### Pipeline de uma mensagem
+
+```mermaid
+flowchart TD
+    A[POST /api/v1/chat] --> B[guardrail_entrada]
+    B -- bloqueado --> Z[guardrail_saida]
+    B -- ok --> C[memoria]
+    C --> D{precisa compactar?}
+    D -- sim --> E[resumir_memoria]
+    D -- não --> F[orquestrador]
+    E --> F
+    F -- autorizado --> G{roteia para}
+    F -- não autorizado --> Z
+    G --> H[faq / educacional<br/>RAG]
+    G --> I[analytics<br/>PostgreSQL + Redis]
+    G --> J[coletas<br/>API externa via MCP]
+    G --> K[grafo<br/>Neo4j]
+    H & I & J & K --> L[juiz_saida]
+    L -- aprovado --> Z
+    L -- reprovado, tentativas restantes --> M[correcao] --> L
+    L -- reprovado, sem tentativas --> Z
+    Z --> N[Resposta ao usuário]
+```
