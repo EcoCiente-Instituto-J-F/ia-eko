@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from datetime import date
-
 import httpx
 import pytest
 
 from src.integrations.auth.client import AuthApiClient
-from src.integrations.calendar.client import CalendarApiClient, CalendarApiUnavailable, CalendarEvent
+from src.integrations.calendar.schemas import Agendamento, BuscarProximaColetaToolResult, CalendarStatus
+from src.integrations.mcp.client import McpToolProtocolError
 from src.security.authentication import AuthenticationService, AuthenticationUnavailable
 from src.shared.context import UserContext
 
@@ -24,17 +23,20 @@ class StubAuthenticationService:
         return None
 
 
-class FakeCalendarService:
-    def __init__(self, event: CalendarEvent | None = None, error: Exception | None = None):
-        self.event = event
-        self.error = error
-        self.calls: list[tuple[int, str | None]] = []
+class FakeCalendarTools:
+    """Substitui CalendarTools nos testes: mesma interface (next_collection/list_collections),
+    sem depender de MCP, HTTP ou Authorization header."""
 
-    async def next_collection(self, condominio_id: int, *, token: str | None = None) -> CalendarEvent | None:
-        self.calls.append((condominio_id, token))
+    def __init__(self, result: BuscarProximaColetaToolResult | None = None, error: Exception | None = None):
+        self.result = result
+        self.error = error
+        self.calls: list[tuple[int | None, str | None]] = []
+
+    async def next_collection(self, user: UserContext, **filters) -> BuscarProximaColetaToolResult:
+        self.calls.append(user.condominio_id)
         if self.error is not None:
             raise self.error
-        return self.event
+        return self.result
 
 
 def _set_authentication(client, user: UserContext) -> StubAuthenticationService:
@@ -89,37 +91,6 @@ async def test_authentication_api_failure_is_safe() -> None:
     with pytest.raises(AuthenticationUnavailable):
         await service.authenticate("jwt_usuario")
     await service.close()
-
-
-@pytest.mark.asyncio
-async def test_calendar_client_uses_external_event_endpoint() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "GET"
-        assert request.url.path == "/calendar/events/55"
-        return httpx.Response(
-            200,
-            json={
-                "coleta": {
-                    "id": "evt-1",
-                    "data": "2030-01-20",
-                    "horario": "08:00",
-                    "cooperativa": "EcoRecicla",
-                    "status": "confirmada",
-                }
-            },
-        )
-
-    calendar = CalendarApiClient(
-        "https://calendar.example",
-        retries=0,
-        transport=httpx.MockTransport(handler),
-    )
-    events = await calendar.events_for_condominium(55, token="jwt_usuario")
-
-    assert len(events) == 1
-    assert events[0].event_id == "evt-1"
-    assert events[0].data == date(2030, 1, 20)
-    await calendar.close()
 
 
 def test_chat_receives_authenticated_profile(client) -> None:
@@ -181,17 +152,21 @@ def test_collection_agent_calls_calendar_after_router(client) -> None:
             token="jwt_calendar",
         ),
     )
-    fake_calendar = FakeCalendarService(
-        event=CalendarEvent(
-            event_id="evt-1",
-            condominio_id=55,
-            data=date(2030, 1, 20),
-            horario="08:00",
-            cooperativa="EcoRecicla",
-            status="confirmada",
+    fake_tools = FakeCalendarTools(
+        result=BuscarProximaColetaToolResult(
+            ok=True,
+            found=True,
+            agendamento=Agendamento(
+                id=1,
+                condominioId=55,
+                cooperativaId=1,
+                dataInicio="2030-01-20T08:00:00",
+                statusAgendamento=CalendarStatus.CONFIRMADO,
+                possuiRecorrencia=False,
+            ),
         )
     )
-    client.app.state.graph.collection_agent.tools.calendar = fake_calendar
+    client.app.state.graph.collection_agent.tools = fake_tools
 
     response = client.post(
         "/api/v1/chat",
@@ -203,7 +178,7 @@ def test_collection_agent_calls_calendar_after_router(client) -> None:
     assert body["agent"] == "coletas"
     assert "orquestrador" in body["agents_called"]
     assert "coletas" in body["agents_called"]
-    assert fake_calendar.calls == [(55, "jwt_calendar")]
+    assert fake_tools.calls == [55]
     assert "20/01/2030" in body["answer"]
 
 
@@ -218,8 +193,8 @@ def test_collection_agent_does_not_invent_dates_when_calendar_fails(client) -> N
             token="jwt_calendar",
         ),
     )
-    client.app.state.graph.collection_agent.tools.calendar = FakeCalendarService(
-        error=CalendarApiUnavailable("calendar offline")
+    client.app.state.graph.collection_agent.tools = FakeCalendarTools(
+        error=McpToolProtocolError("calendar offline")
     )
 
     response = client.post(
@@ -228,5 +203,5 @@ def test_collection_agent_does_not_invent_dates_when_calendar_fails(client) -> N
     )
 
     assert response.status_code == 200
-    assert "Não consegui consultar o calendário" in response.json()["answer"]
+    assert "Não consegui executar a consulta ao calendário" in response.json()["answer"]
     assert "20/01/2030" not in response.json()["answer"]

@@ -102,18 +102,34 @@ class AgentSuite:
             "necessita_correcao": not approved,
         }
 
+    @staticmethod
+    def _extract_mensagem_original(prompt: str) -> str:
+        """Isola o valor de MENSAGEM_ORIGINAL do prompt (que também carrega
+        CONTEXTO_IDENTIDADE/CONTEXTO_MEMORIA). Essencial para a heurística mock
+        do orquestrador não confundir campos do contexto (ex.: "cooperativa_id")
+        com palavras-chave da mensagem do usuário."""
+        match = re.search(r"MENSAGEM_ORIGINAL=(.*?)(?:\nCONTEXTO_|\nPERFIL=|$)", prompt, re.S)
+        return match.group(1).strip() if match else ""
+
     def _mock_response(self, agent_name: str, prompt: str) -> str:
         lower = prompt.lower()
         if agent_name == "juiz_entrada":
             return "STATUS=aprovado\nMENSAGEM_ORIGINAL=[mantida]"
         if agent_name == "orquestrador":
-            if any(w in lower for w in ["caminho entre", "conexão entre", "conexao entre", "conectado a", "influenciam a reciclagem", "quem influencia"]):
+            # Bug corrigido: a heurística verificava palavras-chave no `prompt`
+            # inteiro, que inclui CONTEXTO_IDENTIDADE (JSON com "cooperativa_id",
+            # "condominio_id" etc). Qualquer usuário sem cooperativa era roteado
+            # para "coletas" só porque a chave `cooperativa_id: null` contém a
+            # substring "cooperativa". A heurística deve olhar somente para a
+            # mensagem do usuário, nunca para o contexto de identidade.
+            message_lower = self._extract_mensagem_original(prompt).lower() or lower
+            if any(w in message_lower for w in ["caminho entre", "conexão entre", "conexao entre", "conectado a", "influenciam a reciclagem", "quem influencia"]):
                 route = "grafo"
-            elif any(w in lower for w in ["ranking", "desempenho", "mais reciclado", "estatística", "estatistica", "dashboard", "top 10", "evoluiu"]):
+            elif any(w in message_lower for w in ["ranking", "desempenho", "mais reciclado", "estatística", "estatistica", "dashboard", "top 10", "evoluiu"]):
                 route = "analytics"
-            elif any(w in lower for w in ["coleta", "calendário", "calendario", "cooperativa", "agendamento", "recorrência", "recorrencia"]):
+            elif any(w in message_lower for w in ["coleta", "calendário", "calendario", "cooperativa", "agendamento", "recorrência", "recorrencia"]):
                 route = "coletas"
-            elif any(w in lower for w in ["reciclável", "reciclavel", "compost", "separar", "descarte", "sustentabilidade", "resíduo", "residuo"]):
+            elif any(w in message_lower for w in ["reciclável", "reciclavel", "compost", "separar", "descarte", "sustentabilidade", "resíduo", "residuo"]):
                 route = "educador"
             else:
                 route = "faq"
