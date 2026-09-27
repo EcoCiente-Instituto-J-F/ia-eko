@@ -109,3 +109,79 @@ class GraphPopulator:
             rows,
             "MERGE (n:Usuario {id: row.id}) SET n.nome = row.nome, n.perfil = row.perfil",
         )
+
+    async def _load_condominios(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT id_condominio AS id, nome_condominio AS nome FROM tb_condominios"
+        )
+        return await self._merge_nodes(
+            "Condominio",
+            rows,
+            "MERGE (n:Condominio {id: row.id}) SET n.nome = row.nome",
+        )
+
+    async def _load_torres(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT id_torre AS id, nome_torre AS nome FROM tb_torres"
+        )
+        return await self._merge_nodes(
+            "Torre",
+            rows,
+            "MERGE (n:Torre {id: row.id}) SET n.nome = row.nome",
+        )
+
+    async def _load_cooperativas(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT id_cooperativa AS id, nome_cooperativa AS nome FROM tb_cooperativas"
+        )
+        return await self._merge_nodes(
+            "Cooperativa",
+            rows,
+            "MERGE (n:Cooperativa {id: row.id}) SET n.nome = row.nome",
+        )
+
+    async def _load_categorias(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT id_categoria AS id, nome_categoria AS nome FROM tb_lkp_categorias_residuos"
+        )
+        return await self._merge_nodes(
+            "CategoriaResiduo",
+            rows,
+            "MERGE (n:CategoriaResiduo {id: row.id}) SET n.nome = row.nome",
+        )
+
+    async def _load_postagens(self) -> int:
+        rows = self.postgres.fetch_all(
+            """
+            SELECT
+                p.id_postagem AS id,
+                p.capturada_em AS capturada_em,
+                s.nome_status AS status_validacao
+            FROM tb_postagens p
+            JOIN tb_lkp_status_validacoes_postagens s
+                ON s.id_status_validacao = p.status_validacao_id
+            """
+        )
+        for row in rows:
+            if row.get("capturada_em") is not None:
+                row["capturada_em"] = row["capturada_em"].isoformat()
+        return await self._merge_nodes(
+            "Postagem",
+            rows,
+            "MERGE (n:Postagem {id: row.id}) "
+            "SET n.capturada_em = row.capturada_em, n.status_validacao = row.status_validacao",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Relacionamentos
+    # ------------------------------------------------------------------ #
+
+    async def _load_mora_em(self) -> int:
+        rows = self.postgres.fetch_all(
+            "SELECT usuario_id, condominio_id FROM tb_moradores"
+        )
+        return await self._merge_edges(
+            rows,
+            "MATCH (u:Usuario {id: row.usuario_id}), (c:Condominio {id: row.condominio_id}) "
+            "MERGE (u)-[:MORA_EM]->(c)",
+        )
