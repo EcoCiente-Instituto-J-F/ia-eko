@@ -24,6 +24,7 @@ class EcoState(TypedDict, total=False):
     sources: list[SourceResponse]
     agents_called: list[str]
     judge: dict[str, Any]
+    faq_canonica: bool
     corrections: int
     blocked: bool
     blocked_reason: str
