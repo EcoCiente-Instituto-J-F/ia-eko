@@ -5,3 +5,7 @@ langchain-google-genai>=3.0,<5
 
 # Tracing de LLM (TRACING_PROVIDER=langfuse). LangSmith já vem com o langchain.
 langfuse>=4,<5
+
+# FAQ por busca vetorial (FAQ_BACKEND=qdrant): cliente Qdrant + embeddings locais ONNX.
+qdrant-client>=1.12,<2
+fastembed>=0.5,<1
