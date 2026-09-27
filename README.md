@@ -9,7 +9,7 @@
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![GitHub repo size](https://img.shields.io/github/repo-size/EcoCiente-Instituto-J-F/Eko?style=for-the-badge)
 ![GitHub last commit](https://img.shields.io/github/last-commit/EcoCiente-Instituto-J-F/Eko?style=for-the-badge)
-![License](https://img.shields.io/github/license/EcoCiente-Instituto-J-F/md-rpa-integration?style=for-the-badge)
+![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)
 
 > API multiagente do EcoCiente: FastAPI + LangChain/LangGraph orquestrando especialistas (FAQ, educação ambiental, coletas, analytics e grafo de relacionamentos) com RAG, memória conversacional persistente, guardrails de entrada/saída e integrações MCP/A2A.
 
@@ -51,11 +51,22 @@ O projeto está em desenvolvimento ativo. Estado atual:
 - [x] Observabilidade via Prometheus (`/metrics`) e healthcheck agregado (`/health`)
 - [x] Protocolo A2A e servidor MCP para integração com outros agentes
 - [x] CI no GitHub Actions rodando a suíte `pytest`
-- [ ] Endpoint `/api/v1/agents` listar o especialista `grafo` (hoje a lista está desatualizada)
-- [ ] Corrigir import quebrado em `tests/test_external_integrations.py` (`CalendarEvent` não existe mais em `src/integrations/calendar/client.py`)
-- [ ] Mover o `load_dotenv()` de `src/services/qdrant_service.py` para `src/core/config.py` (regra do projeto é carregar `.env` só ali; há um teste cobrindo isso)
-- [ ] Popular o grafo Neo4j a partir do PostgreSQL (hoje o schema existe, mas não há pipeline de carga)
-- [ ] Definir e adicionar arquivo de licença
+- [x] Endpoint `/api/v1/agents` lista o especialista `grafo`
+- [x] Import quebrado corrigido em `tests/test_external_integrations.py` (testes reescritos para a arquitetura MCP atual — `CalendarMcpClient`/`CalendarTools`)
+- [x] `load_dotenv()` isolado em `src/core/config.py` (`src/services/qdrant_service.py` era código órfão — nada o importava e sua própria dependência `qdrant-client` nunca chegou a entrar no `requirements.txt` — e foi removido)
+- [x] Pipeline de povoamento do grafo Neo4j a partir do PostgreSQL (`python -m src.etl.populate_graph`; ver `src/etl/populate_graph.py` para o mapeamento nó a nó/relação a relação e as duas relações fora do escopo desta primeira versão)
+- [x] Licença MIT adicionada (`LICENSE`)
+- [x] Juízes e orquestrador aceitam o JSON que os próprios prompts pedem (antes, com LLM real, o juiz de saída reprovava 100% das respostas e o de entrada nunca bloqueava)
+- [x] Resposta censurada pelo juiz (`aprovado_com_censura`) é a que chega ao usuário
+- [x] Cota diária de respostas por perfil, anti-rajada por minuto e sessão do `usuario_comum` encerrada antes de acionar o resumo de memória
+- [x] Tracing de LLM com Langfuse (self-hosted) ou LangSmith, com CPF/e-mail/telefone/tokens mascarados
+- [x] Prometheus + Grafana no `docker-compose.yml`, com dashboard e alertas provisionados
+- [x] Evals de roteamento (`python -m evals.routing.run`) com acurácia, F1 por rota e matriz de confusão
+- [x] Tokens por conversa e taxa de reprovação do juiz por especialista/categoria
+- [x] ETL do grafo incremental, agendado (CronJob ou loop) e com `TEM_DIFICULDADE_EM`/`RECOMENDADO_PARA`
+- [x] Endpoint SSE `/api/v1/chat/stream` com progresso do pipeline
+- [ ] Rodar os evals com o modelo de produção e registrar a acurácia de referência
+- [ ] Tool do agente `grafo` para consultar recomendações de curso diretamente
 
 ## Pré-requisitos
 
@@ -154,6 +165,8 @@ A API sobe em `http://127.0.0.1:8000`. Endpoints principais:
 | Método | Rota | Descrição |
 | --- | --- | --- |
 | `POST` | `/api/v1/chat` | Envia uma mensagem e recebe a resposta do especialista roteado |
+| `POST` | `/api/v1/chat/stream` | Mesmo pipeline, com progresso por etapa via SSE (`session` → `progress` → `answer` → `done`) |
+| `GET` | `/api/v1/chat/quota` | Quantas respostas o usuário ainda tem hoje |
 | `GET` | `/api/v1/agents` | Lista os especialistas disponíveis |
 | `GET` | `/api/v1/sessions/{session_id}` | Consulta o estado de uma sessão de conversa |
 | `GET` | `/api/v1/rankings` | Ranking de reciclagem (morador ou torres, conforme perfil) |
@@ -186,9 +199,74 @@ Resposta (resumida):
   "answer": "…",
   "agents_called": ["guardrail_entrada", "memoria", "verificar_compactacao", "orquestrador", "grafo", "juiz_saida", "guardrail_saida"],
   "sources": [],
-  "judge": { "aprovado": true, "motivo": "…", "necessita_correcao": false }
+  "judge": { "aprovado": true, "motivo": "aprovado", "necessita_correcao": false, "categoria": "aprovado" },
+  "usage": { "input_tokens": 1830, "output_tokens": 212, "total_tokens": 2042 },
+  "quota": { "limite_diario": 100, "usadas_hoje": 3, "restantes_hoje": 97, "renova_em": "2026-09-28T00:00:00-03:00" }
 }
 ```
+
+### Limites de uso
+
+Checados antes de qualquer chamada de LLM (`src/services/quota_service.py`). Estourou → HTTP
+`429` com `Retry-After` e `detail.codigo` = `limite_daily`, `limite_rate` ou `limite_session`.
+
+| Perfil | Respostas/dia | Observação |
+| --- | --- | --- |
+| `usuario_comum` | 20 | Sessão encerrada em 10 perguntas: o resumo de memória (LLM extra) nunca é acionado |
+| `morador_residencial` | 40 | |
+| `usuario_comercial` | 50 | |
+| `cooperativa` | 80 | Uso operacional (agenda de coletas) |
+| `sindico_residencial` / `sindico_comercial` | 100 | Analytics e gestão do condomínio |
+
+Além disso, qualquer perfil tem no máximo 10 mensagens por minuto (anti-script). A cota vira à
+meia-noite de `QUOTA_TIMEZONE` e não é consumida quando a resposta falha por erro do servidor.
+Tudo configurável por variável de ambiente (`QUOTA_*`, `RATE_LIMIT_PER_MINUTE`).
+
+> [!NOTE]
+> O teto de 10 perguntas por sessão do `usuario_comum` vem de `MEMORY_MAX_MESSAGES=20`: cada
+> pergunta gera 2 mensagens (usuário + assistente), e o resumo dispara quando a sessão passa de
+> 20. Só a cota diária de 20 não bastaria — 20 respostas numa sessão só seriam 40 mensagens.
+
+### Observabilidade
+
+```bash
+# API + Prometheus (9090) + Grafana (3001, dashboard "EcoCiente IA" já provisionado)
+docker compose up -d
+
+# Langfuse self-hosted (3000), projeto e chaves de dev já criados
+docker compose -f docker-compose.langfuse.yml -p langfuse up -d
+```
+
+Para ligar o tracing, no `.env`:
+
+```env
+TRACING_PROVIDER=langfuse
+LANGFUSE_PUBLIC_KEY=pk-lf-ecociente-local
+LANGFUSE_SECRET_KEY=sk-lf-ecociente-local
+LANGFUSE_HOST=http://localhost:3000
+```
+
+Cada agente vira um span agrupado por sessão e usuário. Antes de sair da API, o conteúdo passa
+por `mask_pii` (CPF, CNPJ, e-mail, telefone, CEP, JWT e chaves como `token`/`senha`).
+`TRACING_PROVIDER=langsmith` com `LANGSMITH_API_KEY` também funciona, com o mesmo mascaramento.
+
+| Ferramenta | Responde |
+| --- | --- |
+| Prometheus/Grafana | Quanto e quão rápido: latência por agente, taxa de reprovação do juiz, tokens/min, recusas por limite |
+| Langfuse/LangSmith | O que aconteceu nesta conversa: prompt, resposta, tokens e decisão de cada agente |
+
+### Carga do grafo
+
+```bash
+python -m src.etl.populate_graph --mode full            # tudo
+python -m src.etl.populate_graph --mode incremental     # só o que mudou desde a última carga
+docker compose --profile etl up -d graph-etl            # loop: incremental 15 min, full 24 h
+kubectl apply -f k8s/graph-etl-cronjobs.yaml            # CronJobs equivalentes
+```
+
+As regras de `TEM_DIFICULDADE_EM` (usuário × curso, a partir das reprovações em quiz) e
+`RECOMENDADO_PARA` (reforço ou "vizinhos do condomínio já aprovados") estão documentadas no
+topo de `src/etl/populate_graph.py`.
 
 Em produção, o `Authorization: Bearer <token>` é obrigatório e a identidade vem da API de
 autenticação (`AUTH_API_URL`) — os headers `X-*` acima só funcionam com `APP_ENV=test`.
@@ -202,8 +280,8 @@ docker run --env-file .env -p 8000:8000 ecociente-ia
 
 ### Kubernetes
 
-Manifests prontos em `k8s/` (namespace, ConfigMap, Secret de exemplo, Deployment e Service com
-`app.kubernetes.io/name: ia-eko`).
+Manifests prontos em `k8s/` (namespace, ConfigMap, Secret de exemplo, Deployment, Service e os
+CronJobs da carga do grafo, com `app.kubernetes.io/name: ia-eko`).
 
 ## Como funciona
 
@@ -244,9 +322,11 @@ flowchart TD
 O agente `grafo` é o mais recente: ele existe porque perguntas como *"quais moradores mais
 influenciam a reciclagem do condomínio?"* não são respondidas por uma agregação SQL — elas
 pedem a topologia da rede de relacionamentos (`Usuario`, `Condominio`, `Torre`, `Cooperativa`,
-`Postagem`, `Material`, `Conteudo` e relações como `PERTENCE_A`, `CRIOU`, `VALIDOU`,
-`DENUNCIOU`). Veja `docs/REQUISITOS_E_FLUXOS.md` para o racional completo e
-`src/agents/graph_traversal/tools.py` para as queries Cypher expostas ao LLM.
+`CategoriaResiduo`, `Curso`, `Postagem` e relações como `MORA_EM`, `PERTENCE_A`, `CRIOU`,
+`VALIDOU`, `DENUNCIOU`, `TEM_DIFICULDADE_EM` e `RECOMENDADO_PARA`). O vocabulário fica em um lugar
+só (`src/etl/graph_model.py`), usado pelo ETL e pela whitelist das tools. Veja
+`docs/REQUISITOS_E_FLUXOS.md` para o racional completo e `src/agents/graph_traversal/tools.py`
+para as queries Cypher expostas ao LLM.
 
 ### Arquitetura
 
@@ -270,6 +350,21 @@ A suíte roda em `LLM_PROVIDER=mock` por padrão (sem custo de API — respostas
 simulam cada agente). Testes de integração real (Postgres/MongoDB/Redis reais) ficam em
 `tests/integration/` e exigem `RUN_INTEGRATION_TESTS=true` com `APP_ENV=test`.
 
+### Evals de roteamento
+
+`pytest` garante que o código funciona; os evals medem se o **modelo** roteia bem. São 58
+perguntas rotuladas (`evals/routing/dataset.jsonl`, fácil/média/difícil) passadas pelo mesmo
+prompt e parser da produção:
+
+```bash
+python -m evals.routing.run                       # usa o LLM_PROVIDER do .env
+python -m evals.routing.run --min-accuracy 0.85   # exit 1 abaixo do mínimo (para CI)
+```
+
+Saída: acurácia, precisão/recall/F1 por rota, acurácia por dificuldade, matriz de confusão e a
+lista de erros, gravadas em `evals/reports/`. Em `LLM_PROVIDER=mock` a heurística de
+palavras-chave acerta ~57% — é só para validar o harness, não uma referência de qualidade.
+
 ## Estrutura do projeto
 
 ```
@@ -283,17 +378,22 @@ Eko/
 │   │   ├── graph_traversal/  # tools Neo4j do especialista grafo
 │   │   └── coleta/           # integração MCP com a API de calendário
 │   ├── prompts/               # prompts de sistema de cada agente
-│   ├── services/               # sessão, ranking, RAG, memória, health
+│   ├── services/               # sessão, ranking, RAG, memória, health, cotas
 │   ├── database/               # clientes/pools: postgres, mongodb, redis, neo4j
+│   ├── etl/                    # carga PostgreSQL → Neo4j e vocabulário do grafo
+│   ├── observability/          # métricas Prometheus, middleware e tracing (Langfuse/LangSmith)
 │   ├── integrations/            # MCP, A2A, auth, calendário
 │   └── security/                # autenticação, policies, guardrails
+├── evals/routing/               # dataset rotulado e avaliação do roteamento
+├── observability/               # config do Prometheus (alertas) e Grafana (dashboard)
 ├── tests/                       # pytest (unitário + integration/)
 ├── docs/                         # arquitetura, requisitos e referências técnicas
 ├── sql/                          # schema PostgreSQL (DDL)
 ├── k8s/                          # manifests Kubernetes
 ├── scripts/pr-bot/               # geração automática de PR
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml           # API + Prometheus + Grafana (+ graph-etl no profile "etl")
+├── docker-compose.langfuse.yml  # Langfuse self-hosted
 ├── requirements.txt
 └── .env.example
 ```
@@ -309,22 +409,6 @@ Agradecemos às seguintes pessoas que contribuíram para este projeto:
         <img src="https://github.com/shinitihm.png" width="100px;" alt="Foto de shinitihm no GitHub"/><br>
         <sub>
           <b>shinitihm</b>
-        </sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/VDG419" title="Perfil no GitHub">
-        <img src="https://github.com/VDG419.png" width="100px;" alt="Foto de VDG419 no GitHub"/><br>
-        <sub>
-          <b>VDG419</b>
-        </sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/JulioCPMenezes" title="Perfil no GitHub">
-        <img src="https://github.com/JulioCPMenezes.png" width="100px;" alt="Foto de JulioCPMenezes no GitHub"/><br>
-        <sub>
-          <b>JulioCPMenezes</b>
         </sub>
       </a>
     </td>
@@ -345,9 +429,4 @@ Como alternativa, consulte a documentação do GitHub em [como criar uma solicit
 
 ## 📝 Licença
 
-Esse projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
-<div align="center">
-
-Desenvolvido por:
-
-<img src="assets/logo-ecociente.png" alt="EcoCiente - Dados que despertam a consciência" width="320"> </div>
+Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
