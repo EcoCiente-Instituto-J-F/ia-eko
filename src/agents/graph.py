@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, AsyncIterator
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -12,8 +12,19 @@ from src.agents.coleta.agent import CollectionAgent
 from src.agents.factory import AgentSuite
 from src.agents.state import EcoState
 from src.core.config import Settings
-from src.observability.metrics import AGENT_LATENCY, GUARDRAIL_BLOCKED, JUDGE_REJECTED, safe_label
+from src.agents.output_parsing import parse_input_judge
+from src.observability.metrics import (
+    AGENT_LATENCY,
+    GUARDRAIL_BLOCKED,
+    INPUT_JUDGE_DECISIONS,
+    JUDGE_DECISIONS,
+    JUDGE_REJECTED,
+    ROUTING_DECISIONS,
+    safe_label,
+)
+from src.observability.tracing import TracingService
 from src.security.policies import authorize_route
+from src.shared.context import UserContext
 from src.services.rag_service import RAGService
 from src.integrations.mcp.client import CalendarMcpClient
 from src.services.session_service import SessionService
@@ -30,12 +41,14 @@ class EcoGraphRuntime:
         sessions: SessionService,
         rag: RAGService,
         calendar_mcp: CalendarMcpClient,
+        tracing: TracingService | None = None,
     ):
         self.settings = settings
         self.sessions = sessions
         self.rag = rag
-        self.agents = AgentSuite(settings)
-        self.memory_summarizer = MemorySummarizerService(settings, model=self.agents.model)
+        self.tracing = tracing or TracingService(settings)
+        self.agents = AgentSuite(settings, self.tracing)
+        self.memory_summarizer = MemorySummarizerService(settings, model=self.agents.model, tracing=self.tracing)
         self.collection_agent = CollectionAgent(calendar_mcp)
         self.graph = self._build_graph()
 
@@ -66,7 +79,14 @@ class EcoGraphRuntime:
             "juiz_entrada",
             f"MENSAGEM_ORIGINAL={state['mensagem']}\nPERFIL={state.get('perfil', 'nao_informado')}",
         )
-        if "status=bloqueado" in judge_text.lower():
+        # Antes: `"status=bloqueado" in texto` — nunca casava com o JSON que o
+        # prompt pede ("status": "bloqueado"), então o juiz LLM não bloqueava nada.
+        input_decision = parse_input_judge(judge_text)
+        INPUT_JUDGE_DECISIONS.labels(
+            outcome="blocked" if input_decision.blocked else "approved",
+            category=input_decision.category if input_decision.blocked or input_decision.category == "saida_invalida" else "aprovado",
+        ).inc()
+        if input_decision.blocked:
             reason = "juiz_entrada_llm"
             GUARDRAIL_BLOCKED.labels(reason=reason).inc()
             update = self._mark(state, "guardrail_entrada", started)
@@ -143,17 +163,29 @@ class EcoGraphRuntime:
     def _after_compaction_check(state: EcoState) -> str:
         return "compact" if state.get("memory_compaction_needed") else "continue"
 
+    @classmethod
+    def build_orchestrator_prompt(
+        cls,
+        mensagem: str,
+        user_context: UserContext | None,
+        memory_context: dict[str, Any] | None = None,
+    ) -> str:
+        """Prompt do orquestrador. Público porque os evals de roteamento
+        (`evals/routing`) precisam montar exatamente o mesmo prompt da produção."""
+        safe_user_context = user_context.for_agent() if user_context else {}
+        return (
+            f"MENSAGEM_ORIGINAL={mensagem}\n"
+            f"CONTEXTO_IDENTIDADE={json.dumps(safe_user_context, ensure_ascii=False, default=str)}\n"
+            f"CONTEXTO_MEMORIA=\n{cls._format_memory_context(memory_context or {})}"
+        )
+
     async def orquestrador(self, state: EcoState) -> dict[str, Any]:
         started = time.perf_counter()
         user_context = state.get("user_context")
-        safe_user_context = user_context.for_agent() if user_context else {}
-        prompt = (
-            f"MENSAGEM_ORIGINAL={state['mensagem']}\n"
-            f"CONTEXTO_IDENTIDADE={json.dumps(safe_user_context, ensure_ascii=False, default=str)}\n"
-            f"CONTEXTO_MEMORIA=\n{self._format_memory_context(state.get('memory_context', {}))}"
-        )
+        prompt = self.build_orchestrator_prompt(state["mensagem"], user_context, state.get("memory_context", {}))
         text = await self.agents.invoke("orquestrador", prompt)
         route = self.agents.parse_route(text)
+        ROUTING_DECISIONS.labels(route=route).inc()
         decision = authorize_route(user_context, route, state["mensagem"])
         if not decision.allowed:
             return {
@@ -260,10 +292,18 @@ class EcoGraphRuntime:
             decision = {
                 "aprovado": bool(candidate.strip()),
                 "motivo": "resposta_verificada_por_calendario",
+                "categoria": "aprovado" if candidate.strip() else "resposta_vazia",
                 "necessita_correcao": False,
+                "resposta_censurada": None,
             }
         elif not candidate.strip():
-            decision = {"aprovado": False, "motivo": "resposta_vazia", "necessita_correcao": True}
+            decision = {
+                "aprovado": False,
+                "motivo": "resposta_vazia",
+                "categoria": "resposta_vazia",
+                "necessita_correcao": True,
+                "resposta_censurada": None,
+            }
         else:
             source_info = [s.model_dump() for s in state.get("sources", [])]
             prompt = (
@@ -274,8 +314,16 @@ class EcoGraphRuntime:
             )
             raw = await self.agents.invoke("juiz_saida", prompt)
             decision = self.agents.parse_judge(raw)
+        category = safe_label(decision.get("categoria") or "outro")
+        JUDGE_DECISIONS.labels(
+            agent=state.get("route", "desconhecido"),
+            outcome="approved" if decision["aprovado"] else "rejected",
+            category=category,
+        ).inc()
         if not decision["aprovado"]:
-            JUDGE_REJECTED.labels(reason=safe_label(decision["motivo"])).inc()
+            # Antes o label era o motivo em texto livre do LLM (cardinalidade
+            # ilimitada no Prometheus). Agora é a categoria fechada.
+            JUDGE_REJECTED.labels(reason=category).inc()
         return {**self._mark(state, "juiz_saida", started), "judge": decision}
 
     async def correcao(self, state: EcoState) -> dict[str, Any]:
@@ -311,8 +359,12 @@ class EcoGraphRuntime:
 
     async def guardrail_saida(self, state: EcoState) -> dict[str, Any]:
         started = time.perf_counter()
-        answer = sanitize_output(state.get("candidate_answer", ""))
-        if not state.get("judge", {}).get("aprovado", True) and int(state.get("corrections", 0)) >= self.settings.judge_max_corrections:
+        judge = state.get("judge") or {}
+        # `aprovado_com_censura`: o juiz removeu dado de terceiro/afirmação sem
+        # base. Exibir `candidate_answer` aqui vazaria exatamente o que foi censurado.
+        censored = judge.get("resposta_censurada") if judge.get("aprovado") else None
+        answer = sanitize_output(censored or state.get("candidate_answer", ""))
+        if judge and not judge.get("aprovado", True) and int(state.get("corrections", 0)) >= self.settings.judge_max_corrections:
             answer = (
                 "Não consegui validar uma resposta suficientemente fundamentada para esta solicitação. "
                 "Tente reformular a pergunta ou verifique os dados/fontes disponíveis no EcoCiente."
@@ -386,6 +438,35 @@ class EcoGraphRuntime:
         # Checkpointer de workflow/thread. MongoDB continua sendo a memória conversacional persistente.
         return builder.compile(checkpointer=InMemorySaver())
 
+    # O checkpointer usa thread_id = session_id, então o estado de um turno
+    # sobrevive para o próximo. Campos que pertencem a UM turno precisam ser
+    # zerados na entrada; sem isso, uma mensagem bloqueada no turno 2 exibia
+    # a `resposta_censurada` do juiz do turno 1.
+    _TURN_DEFAULTS: dict[str, Any] = {
+        "judge": {},
+        "candidate_answer": "",
+        "answer": "",
+        "sources": [],
+        "blocked": False,
+        "blocked_reason": "",
+        "corrections": 0,
+        "memory_compaction_error": None,
+    }
+
+    def _turn_state(self, initial_state: EcoState) -> EcoState:
+        return {**self._TURN_DEFAULTS, **initial_state}  # type: ignore[return-value]
+
     async def invoke(self, initial_state: EcoState) -> EcoState:
         config = {"configurable": {"thread_id": initial_state["session_id"]}}
-        return await self.graph.ainvoke(initial_state, config=config)
+        return await self.graph.ainvoke(self._turn_state(initial_state), config=config)
+
+    async def astream(self, initial_state: EcoState) -> AsyncIterator[tuple[str, Any]]:
+        """Executa o mesmo grafo emitindo ("updates", {nó: parcial}) a cada nó
+        concluído e ("values", estado) com o estado acumulado. Usado pelo SSE."""
+        config = {"configurable": {"thread_id": initial_state["session_id"]}}
+        async for mode, chunk in self.graph.astream(
+            self._turn_state(initial_state),
+            config=config,
+            stream_mode=["updates", "values"],
+        ):
+            yield mode, chunk
