@@ -10,6 +10,7 @@ from src.core.config import Settings
 from src.database.neo4j import Neo4jDatabase
 from src.database.postgres import PostgresDatabase, PostgresUnavailable
 from src.integrations.calendar.client import CalendarApiClient
+from src.services.qdrant_service import QdrantFaqService
 from src.services.rag_service import RAGService
 from src.services.session_service import SessionService
 
@@ -24,6 +25,7 @@ class HealthService:
         *,
         calendar_api: CalendarApiClient | None = None,
         neo4j: Neo4jDatabase | None = None,
+        qdrant: QdrantFaqService | None = None,
     ):
         self.settings = settings
         self.sessions = sessions
@@ -31,6 +33,7 @@ class HealthService:
         self.postgres = postgres
         self.calendar_api = calendar_api
         self.neo4j = neo4j
+        self.qdrant = qdrant
 
     async def check(self) -> dict[str, str]:
         services = await self.sessions.health()
@@ -39,7 +42,18 @@ class HealthService:
         services["postgres"] = await self._postgres_health()
         services["calendar_api"] = await self._calendar_health()
         services["neo4j"] = await self._neo4j_health()
+        services["qdrant"] = await self._qdrant_health()
         return services
+
+    async def _qdrant_health(self) -> str:
+        # Com FAQ_BACKEND=qdrant o Qdrant É a fonte do FAQ: fora do ar = "error"
+        # (status geral "degraded"). Com o backend rag, nem é consultado.
+        if self.qdrant is None:
+            return "not_configured"
+        try:
+            return await asyncio.wait_for(self.qdrant.health(), timeout=5)
+        except Exception:
+            return "error"
 
     async def _neo4j_health(self) -> str:
         # Camada opcional (docs/REQUISITOS_E_FLUXOS.md): ao contrário do PostgreSQL,
