@@ -70,6 +70,22 @@ async def test_load_pertence_a_casts_trust_score_to_float():
 
 
 @pytest.mark.asyncio
+async def test_ensure_constraints_creates_one_per_label():
+    populator = GraphPopulator()
+    populator.neo4j = FakeNeo4j()
+
+    await populator._ensure_constraints()
+
+    queries = [query for query, _ in populator.neo4j.calls]
+    assert len(queries) == len(GraphPopulator._NODE_LABELS)
+    for label in GraphPopulator._NODE_LABELS:
+        assert any(
+            f"CREATE CONSTRAINT IF NOT EXISTS FOR (n:{label}) REQUIRE n.id IS UNIQUE" in q
+            for q in queries
+        )
+
+
+@pytest.mark.asyncio
 async def test_run_batches_respects_batch_size(monkeypatch):
     populator = GraphPopulator()
     rows = [{"usuario_id": i, "condominio_id": 10} for i in range(1200)]
