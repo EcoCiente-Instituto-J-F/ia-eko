@@ -23,6 +23,7 @@ from src.observability.tracing import TracingService
 from src.security.authentication import AuthenticationService
 from src.services.chat_service import ChatService
 from src.services.health_service import HealthService
+from src.services.qdrant_service import QdrantFaqService
 from src.services.quota_service import QuotaService
 from src.services.rag_service import RAGService
 from src.services.ranking_service import RankingService
@@ -61,6 +62,9 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
         rag_service = RAGService(app_settings)
         # Langfuse/LangSmith opcional; TRACING_PROVIDER=none não importa nada.
         tracing = TracingService(app_settings)
+        # FAQ por busca vetorial (sem LLM). Cliente e modelo de embedding são
+        # criados no primeiro uso, então isto não conecta nem baixa nada aqui.
+        faq_search = QdrantFaqService(app_settings) if app_settings.faq_backend == "qdrant" else None
 
         try:
             await asyncio.to_thread(postgres_db.start, app_settings)
@@ -78,7 +82,14 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
                 )
 
             ranking_service = RankingService(redis_db)
-            graph_runtime = EcoGraphRuntime(app_settings, sessions_service, rag_service, calendar_mcp, tracing=tracing)
+            graph_runtime = EcoGraphRuntime(
+                app_settings,
+                sessions_service,
+                rag_service,
+                calendar_mcp,
+                tracing=tracing,
+                faq_search=faq_search,
+            )
             # Usa o mesmo Redis das sessões; em STORAGE_MODE=memory (ou fallback)
             # o cliente é None e os contadores ficam em memória do processo.
             quota_service = QuotaService(app_settings, redis_db)
@@ -101,6 +112,7 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
                 postgres_db,
                 calendar_api=calendar_api,
                 neo4j=neo4j_db,
+                qdrant=faq_search,
             )
 
             yield
@@ -113,6 +125,8 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
             await mongo_db.close()
             await redis_db.close()
             await neo4j_db.close()
+            if faq_search is not None:
+                await faq_search.close()
             await asyncio.to_thread(postgres_db.close)
             # Envia os spans pendentes antes de o processo encerrar.
             await asyncio.to_thread(tracing.shutdown)
