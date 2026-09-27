@@ -4,16 +4,19 @@ import re
 import time
 from typing import Any
 
+from src.agents.output_parsing import parse_output_judge, parse_route
 from src.core.config import Settings
 from src.core.llm import build_chat_model
 from src.observability.metrics import LLM_LATENCY, TOOL_LATENCY
+from src.observability.tracing import TracingService, record_usage
 
 
 class AgentSuite:
     """Cria agentes LangChain em produção e equivalentes determinísticos no modo mock."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, tracing: TracingService | None = None):
         self.settings = settings
+        self.tracing = tracing or TracingService(settings)
         self.model = build_chat_model(settings)
         self.agents: dict[str, Any] = {}
         if settings.llm_provider != "mock":
@@ -54,11 +57,16 @@ class AgentSuite:
             return self._mock_response(agent_name, prompt)
         agent = self.agents[agent_name]
         started = time.perf_counter()
-        result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
+        config = self.tracing.run_config(agent_name)
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": prompt}]},
+            config=config or None,
+        )
         LLM_LATENCY.labels(provider=self.settings.llm_provider, agent=agent_name).observe(
             time.perf_counter() - started
         )
         messages = result.get("messages", []) if isinstance(result, dict) else []
+        record_usage(provider=self.settings.llm_provider, agent=agent_name, messages=messages)
         if not messages:
             return str(result)
         content = messages[-1].content
@@ -84,23 +92,15 @@ class AgentSuite:
 
     @staticmethod
     def parse_route(text: str) -> str:
-        match = re.search(r"ROUTE\s*=\s*(coletas|educador|educacional|analytics|grafo|faq)", text, re.I)
-        if not match:
-            return "faq"
-        route = match.group(1).lower()
-        return "educacional" if route == "educador" else route
+        # Aceita JSON (contrato do prompt) e ROUTE=... (few-shots/mock).
+        return parse_route(text)
 
     @staticmethod
     def parse_judge(text: str) -> dict[str, Any]:
-        lowered = text.lower()
-        approved = bool(re.search(r"status\s*=\s*aprovado", lowered))
-        reason_match = re.search(r"motivo\s*=\s*(.+)", text, re.I)
-        reason = reason_match.group(1).strip() if reason_match else ("aprovado" if approved else "Resposta não aprovada pelo juiz.")
-        return {
-            "aprovado": approved,
-            "motivo": reason[:500],
-            "necessita_correcao": not approved,
-        }
+        # Aceita JSON (contrato do prompt) e STATUS=... (mock). Ver output_parsing.
+        decision = parse_output_judge(text).as_state()
+        decision["motivo"] = str(decision["motivo"])[:500]
+        return decision
 
     @staticmethod
     def _extract_mensagem_original(prompt: str) -> str:
