@@ -19,9 +19,11 @@ from src.integrations.auth.client import AuthApiClient
 from src.integrations.calendar.client import CalendarApiClient
 from src.integrations.mcp.client import CalendarMcpClient
 from src.observability.middleware import RequestContextMiddleware
+from src.observability.tracing import TracingService
 from src.security.authentication import AuthenticationService
 from src.services.chat_service import ChatService
 from src.services.health_service import HealthService
+from src.services.quota_service import QuotaService
 from src.services.rag_service import RAGService
 from src.services.ranking_service import RankingService
 from src.services.session_service import SessionService
@@ -57,6 +59,8 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
 
         sessions_service = SessionService(app_settings, mongo_db, redis_db)
         rag_service = RAGService(app_settings)
+        # Langfuse/LangSmith opcional; TRACING_PROVIDER=none não importa nada.
+        tracing = TracingService(app_settings)
 
         try:
             await asyncio.to_thread(postgres_db.start, app_settings)
@@ -74,7 +78,10 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
                 )
 
             ranking_service = RankingService(redis_db)
-            graph_runtime = EcoGraphRuntime(app_settings, sessions_service, rag_service, calendar_mcp)
+            graph_runtime = EcoGraphRuntime(app_settings, sessions_service, rag_service, calendar_mcp, tracing=tracing)
+            # Usa o mesmo Redis das sessões; em STORAGE_MODE=memory (ou fallback)
+            # o cliente é None e os contadores ficam em memória do processo.
+            quota_service = QuotaService(app_settings, redis_db)
 
             app.state.settings = app_settings
             app.state.authentication = authentication_service
@@ -83,7 +90,9 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
             app.state.sessions = sessions_service
             app.state.rag = rag_service
             app.state.graph = graph_runtime
-            app.state.chat = ChatService(sessions_service, graph_runtime)
+            app.state.chat = ChatService(sessions_service, graph_runtime, quotas=quota_service, tracing=tracing)
+            app.state.quotas = quota_service
+            app.state.tracing = tracing
             app.state.rankings = ranking_service
             app.state.health_service = HealthService(
                 app_settings,
@@ -105,6 +114,8 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
             await redis_db.close()
             await neo4j_db.close()
             await asyncio.to_thread(postgres_db.close)
+            # Envia os spans pendentes antes de o processo encerrar.
+            await asyncio.to_thread(tracing.shutdown)
 
     app = FastAPI(
         title=app_settings.app_name,
