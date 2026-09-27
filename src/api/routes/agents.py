@@ -12,6 +12,7 @@ AGENTS = [
     AgentInfo(name="analytics", description="Consulta dados analíticos autorizados via ferramentas PostgreSQL e projeções Redis."),
     AgentInfo(name="educacional", description="RAG sobre reciclagem, separação, resíduos, compostagem e sustentabilidade."),
     AgentInfo(name="coletas", description="Consulta e atualiza agenda exclusivamente pela API externa de calendário, respeitando o perfil autenticado."),
+    AgentInfo(name="grafo", description="Consulta relacionamentos e conexões da rede EcoCiente no Neo4j (caminhos, conexões diretas, usuários mais conectados)."),
     AgentInfo(name="juiz_saida", description="Verifica fundamentação, privacidade, uso de ferramentas e alucinação antes da resposta."),
 ]
 
