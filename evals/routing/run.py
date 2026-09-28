@@ -8,8 +8,14 @@ Uso:
     # modelo configurado no .env (LLM_PROVIDER=ollama|groq|gemini)
     python -m evals.routing.run
     python -m evals.routing.run --min-accuracy 0.85 --concurrency 4
+    # Gemini free tier: limite de requisições por minuto
+    LLM_PROVIDER=gemini python -m evals.routing.run --rpm 10 --concurrency 1
     # heurística determinística (sem LLM) — só valida o harness
     LLM_PROVIDER=mock python -m evals.routing.run
+
+Falha de API (429, timeout) é tentada de novo com backoff; se persistir, o caso
+entra como `erro_api` e NÃO como erro de roteamento. Saída sem rota legível
+entra como `saida_invalida` (em produção vira `faq`, o fallback seguro).
 
 Saída: resumo no terminal + `evals/reports/routing-<data>.json` e `.md`.
 Código de saída 1 se a acurácia ficar abaixo de --min-accuracy (útil no CI).
@@ -28,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
-from src.agents.output_parsing import VALID_ROUTES
+from src.agents.output_parsing import VALID_ROUTES, parse_route_strict
 
 DATASET = Path(__file__).with_name("dataset.jsonl")
 REPORTS = Path(__file__).resolve().parents[1] / "reports"
@@ -46,6 +52,10 @@ class CaseResult:
     latencia_ms: float
     tokens: int
     saida_bruta: str
+    # ok | saida_invalida (sem rota legível → faq) | erro_api (não respondeu)
+    status: str = "ok"
+    tentativas: int = 1
+    erro: str = ""
 
 
 def load_dataset(path: Path = DATASET) -> list[dict[str, Any]]:
@@ -91,11 +101,16 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict[str, Any]:
             "casos": len(subset),
         }
 
-    latencies = sorted(r.latencia_ms for r in results)
+    respondidos = [r for r in results if r.status != "erro_api"]
+    latencies = sorted(r.latencia_ms for r in respondidos)
     return {
         "casos": total,
         "acertos": hits,
         "acuracia": round(hits / total, 4) if total else 0.0,
+        # Sem os casos em que a API falhou: mede só o roteamento em si.
+        "acuracia_respondidos": round(sum(r.acertou for r in respondidos) / len(respondidos), 4) if respondidos else 0.0,
+        "erros_api": total - len(respondidos),
+        "saidas_invalidas": sum(r.status == "saida_invalida" for r in results),
         "macro_f1": round(sum(m["f1"] for m in per_route.values()) / len(per_route), 4),
         "por_rota": per_route,
         "por_dificuldade": by_difficulty,
@@ -106,7 +121,35 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict[str, Any]:
     }
 
 
-async def run_cases(cases: list[dict[str, Any]], *, concurrency: int = 2) -> list[CaseResult]:
+class _RateLimiter:
+    """Espaça o INÍCIO das chamadas para caber em `rpm` requisições/minuto."""
+
+    def __init__(self, rpm: float | None):
+        self.interval = 60.0 / rpm if rpm else 0.0
+        self._next = 0.0
+        self._lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        if not self.interval:
+            return
+        async with self._lock:
+            loop = asyncio.get_running_loop()
+            now = loop.time()
+            if self._next > now:
+                await asyncio.sleep(self._next - now)
+                now = self._next
+            self._next = now + self.interval
+
+
+async def run_cases(
+    cases: list[dict[str, Any]],
+    *,
+    concurrency: int = 2,
+    rpm: float | None = None,
+    retries: int = 3,
+    backoff_seconds: float = 5.0,
+    agents: Any = None,
+) -> list[CaseResult]:
     # Imports tardios: `compute_metrics` pode ser testado sem LangGraph instalado.
     from src.agents.factory import AgentSuite
     from src.agents.graph import EcoGraphRuntime
@@ -114,41 +157,70 @@ async def run_cases(cases: list[dict[str, Any]], *, concurrency: int = 2) -> lis
     from src.observability.tracing import TracingService, conversation_trace
     from src.shared.context import UserContext
 
-    settings = Settings.from_env()
-    agents = AgentSuite(settings, TracingService(settings))
+    if agents is None:
+        settings = Settings.from_env()
+        agents = AgentSuite(settings, TracingService(settings))
     semaphore = asyncio.Semaphore(max(1, concurrency))
+    limiter = _RateLimiter(rpm)
+    retries = max(1, retries)  # 0 significaria não chamar o modelo
 
     async def one(case: dict[str, Any]) -> CaseResult:
         user = UserContext(user_id=0, perfil=case["perfil"], condominio_id=None)
         prompt = EcoGraphRuntime.build_orchestrator_prompt(case["mensagem"], user, {})
+        raw, erro, latency, tokens, attempt = "", "", 0.0, 0, 0
         async with semaphore:
-            with conversation_trace(
-                session_id=f"eval-routing-{case['id']}",
-                user_id=0,
-                request_id=case["id"],
-                perfil=case["perfil"],
-            ) as trace:
-                started = time.perf_counter()
-                raw = await agents.invoke("orquestrador", prompt)
-                latency = (time.perf_counter() - started) * 1000
-        obtido = agents.parse_route(raw)
+            for attempt in range(1, retries + 1):
+                await limiter.wait()
+                with conversation_trace(
+                    session_id=f"eval-routing-{case['id']}",
+                    user_id=0,
+                    request_id=case["id"],
+                    perfil=case["perfil"],
+                ) as trace:
+                    started = time.perf_counter()
+                    try:
+                        raw = await agents.invoke("orquestrador", prompt)
+                        erro = ""
+                    except Exception as exc:  # noqa: BLE001 - qualquer falha de API
+                        erro = f"{type(exc).__name__}: {str(exc)[:200]}"
+                    latency = (time.perf_counter() - started) * 1000
+                    tokens = trace.usage.total_tokens
+                if not erro:
+                    break
+                if attempt < retries:
+                    # 429/cota: espera crescente antes de tentar de novo.
+                    await asyncio.sleep(backoff_seconds * 2 ** (attempt - 1))
+
+        dificuldade = case.get("dificuldade", "media")
+        if erro:
+            return CaseResult(
+                id=case["id"], mensagem=case["mensagem"], perfil=case["perfil"], dificuldade=dificuldade,
+                esperado=case["esperado"], obtido="(erro_api)", acertou=False, latencia_ms=round(latency, 1),
+                tokens=tokens, saida_bruta="", status="erro_api", tentativas=attempt, erro=erro,
+            )
+        estrita = parse_route_strict(raw)
+        obtido = estrita or agents.parse_route(raw)
         return CaseResult(
             id=case["id"],
             mensagem=case["mensagem"],
             perfil=case["perfil"],
-            dificuldade=case.get("dificuldade", "media"),
+            dificuldade=dificuldade,
             esperado=case["esperado"],
             obtido=obtido,
             acertou=obtido == case["esperado"],
             latencia_ms=round(latency, 1),
-            tokens=trace.usage.total_tokens,
+            tokens=tokens,
             saida_bruta=raw[:500],
+            status="ok" if estrita else "saida_invalida",
+            tentativas=attempt,
         )
 
     try:
         return list(await asyncio.gather(*(one(case) for case in cases)))
     finally:
-        agents.tracing.shutdown()
+        tracing = getattr(agents, "tracing", None)
+        if tracing is not None:
+            tracing.shutdown()
 
 
 def render_markdown(metrics: dict[str, Any], results: list[CaseResult], provider: str, model: str) -> str:
@@ -158,6 +230,8 @@ def render_markdown(metrics: dict[str, Any], results: list[CaseResult], provider
         f"- Provedor/modelo: `{provider}` / `{model}`",
         f"- Acurácia: **{metrics['acuracia']:.1%}** ({metrics['acertos']}/{metrics['casos']}) · macro-F1 {metrics['macro_f1']:.3f}",
         f"- Latência p50/p95: {metrics['latencia_p50_ms']:.0f} / {metrics['latencia_p95_ms']:.0f} ms · tokens: {metrics['tokens_totais']}",
+        f"- Erros de API: {metrics['erros_api']} · saídas sem rota legível: {metrics['saidas_invalidas']}"
+        + (f" · acurácia só dos respondidos: {metrics['acuracia_respondidos']:.1%}" if metrics["erros_api"] else ""),
         "",
         "| Rota | Precisão | Recall | F1 | Casos |",
         "| --- | --- | --- | --- | --- |",
@@ -176,7 +250,8 @@ def render_markdown(metrics: dict[str, Any], results: list[CaseResult], provider
     errors = [r for r in results if not r.acertou]
     lines += ["", f"## Erros ({len(errors)})", ""]
     for r in errors:
-        lines.append(f"- `{r.id}` [{r.dificuldade}] esperado **{r.esperado}**, obtido **{r.obtido}** — {r.mensagem}")
+        extra = {"saida_invalida": " _(saída sem rota legível)_", "erro_api": f" _(API: {r.erro})_"}.get(r.status, "")
+        lines.append(f"- `{r.id}` [{r.dificuldade}] esperado **{r.esperado}**, obtido **{r.obtido}**{extra} — {r.mensagem}")
     return "\n".join(lines) + "\n"
 
 
@@ -185,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dataset", type=Path, default=DATASET)
     parser.add_argument("--limit", type=int, default=None, help="avaliar só os N primeiros casos")
     parser.add_argument("--concurrency", type=int, default=2)
+    parser.add_argument("--rpm", type=float, default=None, help="máx. de chamadas por minuto (ex.: 10 no Gemini free)")
+    parser.add_argument("--retries", type=int, default=3, help="tentativas por caso em erro de API")
     parser.add_argument("--min-accuracy", type=float, default=0.0, help="falha (exit 1) abaixo deste valor")
     parser.add_argument("--no-report", action="store_true", help="não gravar arquivos em evals/reports")
     args = parser.parse_args(argv)
@@ -199,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     }.get(settings.llm_provider, "heuristica-mock")
 
     cases = load_dataset(args.dataset)[: args.limit]
-    results = asyncio.run(run_cases(cases, concurrency=args.concurrency))
+    results = asyncio.run(run_cases(cases, concurrency=args.concurrency, rpm=args.rpm, retries=args.retries))
     metrics = compute_metrics(results)
     markdown = render_markdown(metrics, results, settings.llm_provider, model)
     print(markdown)
