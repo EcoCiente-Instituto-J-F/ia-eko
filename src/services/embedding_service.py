@@ -29,20 +29,34 @@ class EmbeddingService:
                     self._model = TextEmbedding(model_name=self.model_name)
         return self._model
 
+    @property
+    def _usa_prefixos_e5(self) -> bool:
+        # A família e5 foi treinada com "query: " na pergunta e "passage: " no
+        # documento; sem isso os scores caem. Outros modelos não usam prefixo.
+        return "e5" in self.model_name.lower()
+
     def gerar_embedding(self, texto: str) -> list[float]:
         texto = texto.strip()
 
         if not texto:
             raise ValueError("O texto não pode estar vazio")
 
-        # Modelos e5 exigem o prefixo "query: " na consulta ("passage: " nos documentos).
-        texto_consulta = f"query: {texto}"
+        texto_consulta = f"query: {texto}" if self._usa_prefixos_e5 else texto
 
         embedding = list(
             self.model.embed([texto_consulta])
         )[0]
 
         return embedding.tolist()
+
+    def gerar_embeddings_documentos(self, textos: list[str], batch_size: int = 16) -> list[list[float]]:
+        """Embeddings dos documentos indexados (lado "passage" do e5)."""
+        limpos = [texto.strip() for texto in textos]
+        if any(not texto for texto in limpos):
+            raise ValueError("Documento vazio não pode ser indexado")
+        if self._usa_prefixos_e5:
+            limpos = [f"passage: {texto}" for texto in limpos]
+        return [vetor.tolist() for vetor in self.model.embed(limpos, batch_size=batch_size)]
 
     async def agerar_embedding(self, texto: str) -> list[float]:
         """Versão para o event loop: a inferência ONNX é CPU e bloqueante."""
