@@ -55,8 +55,9 @@ O projeto está em desenvolvimento ativo. Estado atual:
 - [x] Import quebrado corrigido em `tests/test_external_integrations.py` (testes reescritos para a arquitetura MCP atual — `CalendarMcpClient`/`CalendarTools`)
 - [x] `load_dotenv()` isolado em `src/core/config.py` (o `qdrant_service.py` agora lê a configuração de `Settings`)
 - [x] FAQ por busca vetorial no Qdrant (`FAQ_BACKEND=qdrant`): responde com a `resposta_canonica` da coleção, sem LLM
-- [x] Pipeline de povoamento do grafo Neo4j a partir do PostgreSQL (`python -m src.etl.populate_graph`; ver `src/etl/populate_graph.py` para o mapeamento nó a nó/relação a relação e as duas relações fora do escopo desta primeira versão)
+- [x] Pipeline de povoamento do grafo Neo4j a partir do PostgreSQL (`python -m src.etl.populate_graph`; mapeamento nó a nó/relação a relação no topo de `src/etl/populate_graph.py`)
 - [x] Licença MIT adicionada (`LICENSE`)
+- [x] Prompts dos agentes importam com LLM real (seis módulos de prompt quebravam no import por JSON dentro de f-string; só o modo `mock` funcionava)
 - [x] Juízes e orquestrador aceitam o JSON que os próprios prompts pedem (antes, com LLM real, o juiz de saída reprovava 100% das respostas e o de entrada nunca bloqueava)
 - [x] Resposta censurada pelo juiz (`aprovado_com_censura`) é a que chega ao usuário
 - [x] Cota diária de respostas por perfil, anti-rajada por minuto e sessão do `usuario_comum` encerrada antes de acionar o resumo de memória
@@ -66,7 +67,11 @@ O projeto está em desenvolvimento ativo. Estado atual:
 - [x] Tokens por conversa e taxa de reprovação do juiz por especialista/categoria
 - [x] ETL do grafo incremental, agendado (CronJob ou loop) e com `TEM_DIFICULDADE_EM`/`RECOMENDADO_PARA`
 - [x] Endpoint SSE `/api/v1/chat/stream` com progresso do pipeline
-- [ ] Rodar os evals com o modelo de produção e registrar a acurácia de referência
+- [x] Lock da sessão no Redis (`SET NX PX` + renovação): duas mensagens da mesma conversa não rodam juntas nem em réplicas diferentes
+- [x] Carga do FAQ canônico no Qdrant (`python -m src.etl.populate_qdrant`), incremental e idempotente
+- [x] ETL do grafo validado em PostgreSQL 16 real com o schema do projeto (até 1,8 mi de votos), lendo em lotes com memória constante, e comando `--validar` para conferir contra o Neo4j/Aura
+- [ ] Rodar os evals com o modelo de produção e registrar a acurácia de referência (harness pronto para o limite do Gemini free: `--rpm`)
+- [ ] Rodar `python -m src.etl.populate_graph --validar` no Aura e registrar os tempos reais
 - [ ] Tool do agente `grafo` para consultar recomendações de curso diretamente
 
 ## Pré-requisitos
@@ -76,6 +81,7 @@ Antes de começar, verifique se você tem:
 - Python `3.11` ou superior
 - PostgreSQL `14+`, MongoDB e Redis (podem subir via Docker)
 - Neo4j `5+` (opcional — só é necessário para o especialista `grafo`; a API sobe sem ele)
+- Qdrant (opcional — só com `FAQ_BACKEND=qdrant`)
 - Ollama rodando localmente (provider padrão de LLM/embeddings) **ou** uma chave Groq/Gemini
 - Docker e Docker Compose, se for usar os bancos em contêiner
 
@@ -131,7 +137,7 @@ No Windows: `copy .env.example .env`.
 | `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | `http://localhost:11434` / `qwen3:4b` | LLM local via Ollama |
 | `POSTGRES_URL` | — | Fonte de verdade dos dados analíticos (somente leitura pelo agente) |
 | `MONGODB_URI` / `MONGODB_DATABASE` | `mongodb://localhost:27017` / `ecociente` | Memória conversacional das sessões |
-| `REDIS_URL` | `redis://localhost:6379/0` | Ranking em tempo real |
+| `REDIS_URL` | `redis://localhost:6379/0` | Ranking, ponteiro de sessão, cotas de uso e lock da sessão entre réplicas |
 | `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | `bolt://localhost:7687` / `neo4j` | Camada de relacionamentos consultada pelo especialista `grafo` (opcional) |
 | `KNOWLEDGE_BASE_PATH` | `data/FAQ_KNOWLEDGE_BASE.md` | Base RAG dos especialistas `faq` e `educacional` |
 | `CALENDAR_API_BASE_URL` | `http://localhost:9800` | API externa de coletas, consumida via MCP |
@@ -142,16 +148,11 @@ Veja `.env.example` para a lista completa (autenticação, testes de integraçã
 
 </details>
 
-Para subir a infraestrutura (Postgres, MongoDB, Redis) com Docker enquanto a API roda local:
-
-```bash
-docker compose up -d
-```
-
 > [!NOTE]
-> O `docker-compose.yml` deste repositório sobe o serviço `api`; os bancos de dados (Postgres,
-> MongoDB, Redis, Neo4j) precisam estar acessíveis nos endereços configurados no `.env` — ajuste
-> conforme seu ambiente local.
+> O `docker-compose.yml` sobe a `api`, o Prometheus e o Grafana (e o `graph-etl` no profile
+> `etl`). Os bancos (Postgres, MongoDB, Redis, Neo4j, Qdrant) **não** estão nele: precisam estar
+> acessíveis nos endereços do `.env`. Para desenvolver sem nenhum deles, use
+> `STORAGE_MODE=memory` e `LLM_PROVIDER=mock`.
 
 ## Usando
 
@@ -169,9 +170,9 @@ A API sobe em `http://127.0.0.1:8000`. Endpoints principais:
 | `POST` | `/api/v1/chat/stream` | Mesmo pipeline, com progresso por etapa via SSE (`session` → `progress` → `answer` → `done`) |
 | `GET` | `/api/v1/chat/quota` | Quantas respostas o usuário ainda tem hoje |
 | `GET` | `/api/v1/agents` | Lista os especialistas disponíveis |
-| `GET` | `/api/v1/sessions/{session_id}` | Consulta o estado de uma sessão de conversa |
-| `GET` | `/api/v1/rankings` | Ranking de reciclagem (morador ou torres, conforme perfil) |
-| `GET` | `/health` | Healthcheck agregado (LLM, Postgres, Mongo/Redis, RAG, Neo4j, calendário) |
+| `POST` / `GET` / `DELETE` | `/api/v1/sessions`, `/api/v1/sessions/{session_id}` | Cria, consulta e encerra uma sessão de conversa |
+| `GET` | `/api/v1/rankings/moradores`, `/torres`, `/me` | Ranking de reciclagem (conforme perfil) e a posição do próprio usuário |
+| `GET` | `/health` | Healthcheck agregado (LLM, Postgres, Mongo/Redis, RAG, Neo4j, Qdrant, calendário) |
 | `GET` | `/metrics` | Métricas Prometheus |
 | `GET` | `/docs` | Swagger UI (OpenAPI) |
 
@@ -222,6 +223,12 @@ Checados antes de qualquer chamada de LLM (`src/services/quota_service.py`). Est
 Além disso, qualquer perfil tem no máximo 10 mensagens por minuto (anti-script). A cota vira à
 meia-noite de `QUOTA_TIMEZONE` e não é consumida quando a resposta falha por erro do servidor.
 Tudo configurável por variável de ambiente (`QUOTA_*`, `RATE_LIMIT_PER_MINUTE`).
+
+Mensagens da mesma sessão são processadas uma por vez, inclusive com várias réplicas da API: o
+lock fica no Redis (`session:lock:<id>`, `SET NX PX`, renovado enquanto a resposta é gerada e
+liberado sozinho pelo TTL se o pod morrer). Uma segunda mensagem espera a primeira terminar por
+até `SESSION_LOCK_WAIT_SECONDS` (45 s); passou disso, HTTP `409` com `detail.codigo` =
+`sessao_ocupada` e a cota devolvida. Sem Redis (`STORAGE_MODE=memory`), o lock é só do processo.
 
 > [!NOTE]
 > O teto de 10 perguntas por sessão do `usuario_comum` vem de `MEMORY_MAX_MESSAGES=20`: cada
@@ -279,11 +286,25 @@ QDRANT_COLLECTION=faq
 QDRANT_MIN_SCORE=0.80
 ```
 
+Carga da coleção a partir da seção "Perguntas Frequentes Canônicas" de
+`data/FAQ_KNOWLEDGE_BASE.md` (64 FAQs `FAQ-NNN`):
+
+```bash
+python -m src.etl.populate_qdrant --dry-run      # valida o arquivo, não toca no Qdrant
+python -m src.etl.populate_qdrant                # cria/atualiza a coleção
+python -m src.etl.populate_qdrant --testar "como faço login?" "posso apagar minha conta?"
+```
+
+A carga é idempotente (id do ponto derivado do `faq_id`), só gera embedding do que mudou (hash
+no payload) e remove da coleção os FAQs que saíram do arquivo. Rode de novo sempre que a base
+mudar. "Perfis relacionados" do documento viram os códigos de perfil do sistema; rótulos
+descritivos ("Todos", "perfis com mapa") deixam o FAQ aberto a todos.
+
 > [!WARNING]
-> A coleção precisa ter sido indexada com o **mesmo** modelo de embedding (1024 dimensões) e com
-> o prefixo `passage: ` nos documentos. O modelo tem ~2,2 GB e é baixado no primeiro uso; a
-> primeira pergunta de FAQ depois de subir a API é lenta. Calibre `QDRANT_MIN_SCORE` com
-> perguntas reais: scores do e5 costumam ficar concentrados entre 0,75 e 0,90.
+> O modelo de embedding (`QDRANT_EMBEDDING_MODEL`, ~2,2 GB, baixado no primeiro uso) tem que ser
+> o mesmo na carga e na API. A carga grava o modelo em cada ponto e o `/health` acusa `qdrant:
+> error` se divergir; trocar de modelo exige `--recriar`. Calibre `QDRANT_MIN_SCORE` com
+> `--testar` e perguntas reais: scores do e5 costumam ficar entre 0,75 e 0,90.
 
 O orquestrador e o juiz de entrada continuam sendo LLM: a busca vetorial substitui a geração da
 resposta do FAQ, não o roteamento.
@@ -292,14 +313,21 @@ resposta do FAQ, não o roteamento.
 
 ```bash
 python -m src.etl.populate_graph --mode full            # tudo
+python -m src.etl.populate_graph --mode full --prune    # tudo + remove do grafo o que não existe mais
 python -m src.etl.populate_graph --mode incremental     # só o que mudou desde a última carga
+python -m src.etl.populate_graph --validar --relatorio etl.json  # confere Postgres × grafo, com tempos
 docker compose --profile etl up -d graph-etl            # loop: incremental 15 min, full 24 h
 kubectl apply -f k8s/graph-etl-cronjobs.yaml            # CronJobs equivalentes
 ```
 
-As regras de `TEM_DIFICULDADE_EM` (usuário × curso, a partir das reprovações em quiz) e
-`RECOMENDADO_PARA` (reforço ou "vizinhos do condomínio já aprovados") estão documentadas no
+O incremental usa as datas do schema e a auditoria de `tb_rel_usuarios_condominios` (todo
+UPDATE, inclusive de `trust_score`, fica registrado). `PERTENCE_A` só existe para vínculo
+aprovado e sem `data_saida`. As regras de `TEM_DIFICULDADE_EM` e `RECOMENDADO_PARA` estão no
 topo de `src/etl/populate_graph.py`.
+
+Medido em PostgreSQL 16 com o schema do projeto e 200 mil usuários, 600 mil postagens e 1,8 mi
+de votos (só a leitura e o preparo dos lotes; o tempo do Neo4j vem do `--validar`): full em
+~21 s com ~125 MB de memória; incremental com atividade de 15 min em ~1 s.
 
 Em produção, o `Authorization: Bearer <token>` é obrigatório e a identidade vem da API de
 autenticação (`AUTH_API_URL`) — os headers `X-*` acima só funcionam com `APP_ENV=test`.
@@ -313,8 +341,11 @@ docker run --env-file .env -p 8000:8000 ecociente-ia
 
 ### Kubernetes
 
-Manifests prontos em `k8s/` (namespace, ConfigMap, Secret de exemplo, Deployment, Service e os
-CronJobs da carga do grafo, com `app.kubernetes.io/name: ia-eko`).
+Manifests de referência em `k8s/` (namespace, ConfigMap, Secret de exemplo, Deployment, Service
+e os CronJobs da carga do grafo, com `app.kubernetes.io/name: ia-eko`). O deploy da AWS é
+mantido pela equipe de infraestrutura em
+[`devops-infra-ecociente`](https://github.com/EcoCiente-Instituto-J-F/devops-infra-ecociente)
+(Helm).
 
 ## Como funciona
 
@@ -346,7 +377,7 @@ flowchart TD
 
 | Agente | Fonte de dados | Quando responde |
 | --- | --- | --- |
-| `faq` | RAG sobre `data/FAQ_KNOWLEDGE_BASE.md` | Regras, políticas e limites do assistente |
+| `faq` | RAG sobre `data/FAQ_KNOWLEDGE_BASE.md`, ou Qdrant sem LLM (`FAQ_BACKEND=qdrant`) | Regras, políticas e limites do assistente |
 | `educacional` | RAG sobre a mesma base + fonte externa (SINIR) | Separação de resíduos, compostagem, sustentabilidade |
 | `analytics` | PostgreSQL (leitura) + Redis (ranking) | Pontos, desempenho, métricas e comparações — sempre que a resposta é um número ou série |
 | `coletas` | API externa de calendário via MCP | Agendamento, recorrência e confirmação de coleta |
@@ -380,8 +411,11 @@ pytest
 ```
 
 A suíte roda em `LLM_PROVIDER=mock` por padrão (sem custo de API — respostas determinísticas
-simulam cada agente). Testes de integração real (Postgres/MongoDB/Redis reais) ficam em
-`tests/integration/` e exigem `RUN_INTEGRATION_TESTS=true` com `APP_ENV=test`.
+simulam cada agente). Alguns testes sobem serviços reais sozinhos se os binários existirem na
+máquina e são pulados se não existirem: `redis-server` (lock da sessão entre réplicas) e
+PostgreSQL (`initdb`/`pg_ctl`, ETL do grafo sobre o schema real); `TEST_REDIS_URL` e
+`TEST_POSTGRES_URL` apontam para servidores já existentes. Os testes de integração em
+`tests/integration/` exigem `RUN_INTEGRATION_TESTS=true` com `APP_ENV=test`.
 
 ### Evals de roteamento
 
@@ -391,11 +425,14 @@ prompt e parser da produção:
 
 ```bash
 python -m evals.routing.run                       # usa o LLM_PROVIDER do .env
+python -m evals.routing.run --rpm 10 --concurrency 1   # Gemini free: respeita o limite por minuto
 python -m evals.routing.run --min-accuracy 0.85   # exit 1 abaixo do mínimo (para CI)
 ```
 
 Saída: acurácia, precisão/recall/F1 por rota, acurácia por dificuldade, matriz de confusão e a
-lista de erros, gravadas em `evals/reports/`. Em `LLM_PROVIDER=mock` a heurística de
+lista de erros, gravadas em `evals/reports/`. Falha de API (429, timeout) é tentada de novo com
+espera crescente e, se persistir, aparece como `erro_api` — separada de erro de roteamento;
+saída sem rota legível aparece como `saida_invalida`. Em `LLM_PROVIDER=mock` a heurística de
 palavras-chave acerta ~57% — é só para validar o harness, não uma referência de qualidade.
 
 ## Estrutura do projeto
@@ -413,17 +450,17 @@ Eko/
 │   ├── prompts/               # prompts de sistema de cada agente
 │   ├── services/               # sessão, ranking, RAG, memória, health, cotas
 │   ├── database/               # clientes/pools: postgres, mongodb, redis, neo4j
-│   ├── etl/                    # carga PostgreSQL → Neo4j e vocabulário do grafo
+│   ├── etl/                    # cargas PostgreSQL → Neo4j e FAQ → Qdrant, vocabulário do grafo
 │   ├── observability/          # métricas Prometheus, middleware e tracing (Langfuse/LangSmith)
 │   ├── integrations/            # MCP, A2A, auth, calendário
 │   └── security/                # autenticação, policies, guardrails
 ├── evals/routing/               # dataset rotulado e avaliação do roteamento
 ├── observability/               # config do Prometheus (alertas) e Grafana (dashboard)
-├── tests/                       # pytest (unitário + integration/)
+├── tests/                       # pytest (unitário, integration/ e fixtures/ com o seed do ETL)
 ├── docs/                         # arquitetura, requisitos e referências técnicas
 ├── sql/                          # schema PostgreSQL (DDL)
 ├── k8s/                          # manifests Kubernetes
-├── scripts/pr-bot/               # geração automática de PR
+├── scripts/                      # pr-bot (geração de PR) e benchmark da API
 ├── Dockerfile
 ├── docker-compose.yml           # API + Prometheus + Grafana (+ graph-etl no profile "etl")
 ├── docker-compose.langfuse.yml  # Langfuse self-hosted
