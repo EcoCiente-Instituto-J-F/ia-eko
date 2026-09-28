@@ -9,6 +9,7 @@ from src.core.config import Settings
 from src.core.llm import build_chat_model
 from src.observability.metrics import LLM_LATENCY, TOOL_LATENCY
 from src.observability.tracing import TracingService, record_usage
+from src.prompts.shared.temporal import linha_data_hora
 
 
 class AgentSuite:
@@ -58,8 +59,10 @@ class AgentSuite:
         agent = self.agents[agent_name]
         started = time.perf_counter()
         config = self.tracing.run_config(agent_name)
+        # Data atual a cada chamada: o prompt de sistema é fixo desde o boot.
+        content = f"{linha_data_hora(self.settings.quota_timezone)}\n\n{prompt}"
         result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": prompt}]},
+            {"messages": [{"role": "user", "content": content}]},
             config=config or None,
         )
         LLM_LATENCY.labels(provider=self.settings.llm_provider, agent=agent_name).observe(
@@ -81,76 +84,3 @@ class AgentSuite:
                     parts.append(str(part))
             return "\n".join(parts)
         return str(content)
-
-    async def run_analytics(self, prompt: str) -> str:
-        if self.settings.llm_provider == "mock":
-            return self._mock_response("analytics", prompt)
-        started = time.perf_counter()
-        result = await self.invoke("analytics", prompt)
-        TOOL_LATENCY.labels(tool="postgresql_analytics_agent").observe(time.perf_counter() - started)
-        return result
-
-    @staticmethod
-    def parse_route(text: str) -> str:
-        # Aceita JSON (contrato do prompt) e ROUTE=... (few-shots/mock).
-        return parse_route(text)
-
-    @staticmethod
-    def parse_judge(text: str) -> dict[str, Any]:
-        # Aceita JSON (contrato do prompt) e STATUS=... (mock). Ver output_parsing.
-        decision = parse_output_judge(text).as_state()
-        decision["motivo"] = str(decision["motivo"])[:500]
-        return decision
-
-    @staticmethod
-    def _extract_mensagem_original(prompt: str) -> str:
-        """Isola o valor de MENSAGEM_ORIGINAL do prompt (que também carrega
-        CONTEXTO_IDENTIDADE/CONTEXTO_MEMORIA). Essencial para a heurística mock
-        do orquestrador não confundir campos do contexto (ex.: "cooperativa_id")
-        com palavras-chave da mensagem do usuário."""
-        match = re.search(r"MENSAGEM_ORIGINAL=(.*?)(?:\nCONTEXTO_|\nPERFIL=|$)", prompt, re.S)
-        return match.group(1).strip() if match else ""
-
-    def _mock_response(self, agent_name: str, prompt: str) -> str:
-        lower = prompt.lower()
-        if agent_name == "juiz_entrada":
-            return "STATUS=aprovado\nMENSAGEM_ORIGINAL=[mantida]"
-        if agent_name == "orquestrador":
-            # Bug corrigido: a heurística verificava palavras-chave no `prompt`
-            # inteiro, que inclui CONTEXTO_IDENTIDADE (JSON com "cooperativa_id",
-            # "condominio_id" etc). Qualquer usuário sem cooperativa era roteado
-            # para "coletas" só porque a chave `cooperativa_id: null` contém a
-            # substring "cooperativa". A heurística deve olhar somente para a
-            # mensagem do usuário, nunca para o contexto de identidade.
-            message_lower = self._extract_mensagem_original(prompt).lower() or lower
-            if any(w in message_lower for w in ["caminho entre", "conexão entre", "conexao entre", "conectado a", "influenciam a reciclagem", "quem influencia"]):
-                route = "grafo"
-            elif any(w in message_lower for w in ["ranking", "desempenho", "mais reciclado", "estatística", "estatistica", "dashboard", "top 10", "evoluiu"]):
-                route = "analytics"
-            elif any(w in message_lower for w in ["coleta", "calendário", "calendario", "cooperativa", "agendamento", "recorrência", "recorrencia"]):
-                route = "coletas"
-            elif any(w in message_lower for w in ["reciclável", "reciclavel", "compost", "separar", "descarte", "sustentabilidade", "resíduo", "residuo"]):
-                route = "educador"
-            else:
-                route = "faq"
-            return f"ROUTE={route}\nPERGUNTA_ORIGINAL=[mantida]"
-        if agent_name == "analytics":
-            return (
-                "No modo mock não consulto dados reais de PostgreSQL/Redis. "
-                "A rota Analytics foi selecionada corretamente; conecte os bancos para obter métricas reais."
-            )
-        if agent_name == "grafo":
-            return (
-                "No modo mock não consulto o Neo4j. "
-                "A rota Grafo foi selecionada corretamente; conecte o Neo4j para obter conexões reais."
-            )
-        if agent_name in {"faq", "educacional", "coletas"}:
-            marker = "CONTEXTO_RAG:\n"
-            context = prompt.split(marker, 1)[-1] if marker in prompt else ""
-            first = " ".join(context.split())[:650]
-            if first:
-                return f"Com base na base consultada: {first}"
-            return "A base consultada não contém evidência suficiente para responder com segurança."
-        if agent_name == "juiz_saida":
-            return "STATUS=aprovado\nESPECIALISTA_JSON=[resposta aprovada]"
-        return ""
