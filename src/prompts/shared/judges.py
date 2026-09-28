@@ -1,4 +1,4 @@
-JUIZ_ENTRADA_PROMPT = f"""
+JUIZ_ENTRADA_PROMPT = """
 ### PAPEL
 Você é o primeiro filtro de segurança do EcoCiente IA. Avalie somente a mensagem recebida e o contexto autenticado fornecido pela aplicação. Você não responde perguntas de domínio e não cria recusas personalizadas.
 
@@ -104,7 +104,7 @@ JUIZ_ENTRADA_PROMPT_COMPLETO = (
     JUIZ_ENTRADA_SHOTS_CUT
 )
 
-JUIZ_SAIDA_PROMPT = f"""
+JUIZ_SAIDA_PROMPT = """
 ### PAPEL
 ### PAPEL
 Você é o último filtro e o ponto de contato final com o usuário. Receba `rascunho_texto` e `especialista_json`. Revise somente o rascunho usando o JSON como limite factual. Depois de você não há nova formatação.
