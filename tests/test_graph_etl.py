@@ -128,8 +128,10 @@ async def test_incremental_uses_window_with_overlap():
     for sql, params in windowed:
         assert sql.count("%s") == len(params)
         assert all(value == since for value in params)
-    # Tabelas sem coluna de data continuam sendo relidas inteiras.
-    assert any("FROM tb_moradores" in sql and not params for sql, params in pg.queries)
+    # Sem data nem auditoria (torres), a tabela continua sendo relida inteira;
+    # moradores e vínculos agora entram pela auditoria do vínculo.
+    assert any("FROM tb_torres" in sql and not params for sql, params in pg.queries)
+    assert any("FROM tb_moradores" in sql and "tb_log_auditoria_usuarios_condominios" in sql and params for sql, params in pg.queries)
 
 
 @pytest.mark.asyncio
@@ -283,3 +285,77 @@ async def test_loop_runs_full_first_then_incremental_and_survives_failures():
 
     await run_forever(900, 24, runner=runner, sleep=no_sleep, iterations=3)
     assert modes == ["full", "incremental", "incremental"]
+
+
+# ------------------------------------------------------------ --validar
+
+
+@pytest.mark.asyncio
+async def test_validar_reports_divergences_idempotency_and_timings():
+    from src.etl import validate_graph
+
+    class Pg:
+        def fetch_one(self, sql, params=()):
+            assert "%(" not in sql  # constantes já substituídas
+            return {"n": 7 if "tb_usuarios" in sql else 3}
+
+    class Neo:
+        def __init__(self):
+            self.full_runs = 0
+
+        async def execute(self, query, parameters=None):
+            if "MATCH (n:Usuario)" in query:
+                return [{"n": 7}]
+            if "(:Usuario)-[r:MORA_EM]" in query:
+                return [{"n": 2}]  # faltou uma aresta
+            return [{"n": 3}]
+
+    class Populator:
+        postgres = Pg()
+        neo4j = Neo()
+
+        async def run(self, mode, prune=False):
+            return {"modo": mode, "usuarios": 7, "duracao_s": {"total": 0.1}}
+
+    relatorio = await validate_graph.validar(Populator())
+    assert relatorio["contagens"]["Usuario"] == {"postgres": 7, "grafo": 7, "ok": True}
+    assert set(relatorio["divergencias"]) == {"MORA_EM"}
+    assert relatorio["idempotente"] is True
+    assert relatorio["ok"] is False
+    assert relatorio["incremental"]["linhas"] == {"usuarios": 7}
+    assert set(relatorio["grafo_total"]) == {"nos", "relacoes"}
+
+
+def test_validar_covers_every_label_and_relationship():
+    from src.etl.validate_graph import CONTAGENS
+
+    chaves = {k.split(" ")[0] for k in CONTAGENS}
+    assert set(NODE_LABELS) <= chaves
+    # RECOMENDADO_PARA é derivada no grafo; não tem contagem equivalente no Postgres.
+    assert set(RELATIONSHIP_TYPES) - {"RECOMENDADO_PARA"} <= chaves
+
+
+def test_cypher_keeps_one_vote_edge_and_drops_stale_post_edges():
+    steps = {s.name: s.merge for s in EDGE_STEPS}
+    # Voto que mudou de tipo: a aresta do tipo antigo sai antes do MERGE.
+    assert "OPTIONAL MATCH (u)-[old:DENUNCIOU]->(p)" in steps["validou"]
+    assert "OPTIONAL MATCH (u)-[old:VALIDOU]->(p)" in steps["denunciou"]
+    # Categoria/torre/condomínio corrigidos: aresta antiga removida; NULL não apaga por engano.
+    rel = steps["postagem_relacoes"]
+    assert "FOREACH (r IN obsoletas | DELETE r)" in rel
+    assert rel.count("coalesce(endNode(r).id = row.") == 3
+
+
+def test_recommendations_use_active_membership_only():
+    assert "MORA_EM" not in etl.RECOMENDACAO_VIZINHOS
+    assert "[:PERTENCE_A]" in etl.RECOMENDACAO_VIZINHOS
+
+
+@pytest.mark.asyncio
+async def test_recommendations_run_on_full_but_not_on_incremental():
+    neo = FakeNeo4j(checkpoint=NOW - timedelta(hours=1))
+    stats = await _populator(FakePostgres(), neo).run("incremental")
+    assert not neo.queries("RECOMENDADO_PARA") and "recomendacoes" not in stats["duracao_s"]
+    neo = FakeNeo4j()
+    stats = await _populator(FakePostgres(), neo).run("full")
+    assert neo.queries("RECOMENDADO_PARA") and "recomendacoes" in stats["duracao_s"]
