@@ -21,8 +21,9 @@ Nós e relacionamentos
 ============================================  ===============================  ==========================================
 Relação                                       Origem                           Incremental por
 ============================================  ===============================  ==========================================
-(Usuario)-[:MORA_EM]->(Condominio)            tb_moradores                     — (sem data; sempre relida)
-(Usuario)-[:PERTENCE_A {trust_score…}]->(C)   tb_rel_usuarios_condominios      — (métricas mudam sem data; sempre relida)
+(Usuario)-[:MORA_EM]->(Condominio)            tb_moradores                     usuário novo OU vínculo auditado
+(Usuario)-[:PERTENCE_A {trust_score…}]->(C)   tb_rel_usuarios_condominios      auditoria do vínculo (todo UPDATE)
+                                              (só aprovado e sem data_saida)
 (Torre)-[:PERTENCE_A]->(Condominio)           tb_torres.condominio_id          — (dimensão pequena)
 (Cooperativa)-[:REPRESENTADA_POR]->(Usuario)  tb_cooperativas.usuario_id       data_cadastro
 (Usuario)-[:CRIOU]->(Postagem)                tb_postagens                     data_postagem OU resolvido_em
@@ -31,7 +32,7 @@ Relação                                       Origem                          
 (Usuario)-[:DENUNCIOU {peso, motivo}]->(P)     tb_rel_votos_postagens (com motivo)  votado_em
 (Usuario)-[:APROVADO_EM]->(Curso)             tb_tentativas_quiz + tb_quizzes  pares (usuário, curso) com tentativa nova
 (Usuario)-[:TEM_DIFICULDADE_EM]->(Curso)      tb_tentativas_quiz + tb_quizzes  pares (usuário, curso) com tentativa nova
-(Curso)-[:RECOMENDADO_PARA]->(Usuario)        calculada no próprio grafo       sempre recalculada (derivada)
+(Curso)-[:RECOMENDADO_PARA]->(Usuario)        calculada no próprio grafo       só no full (derivada; consulta pesada)
 ============================================  ===============================  ==========================================
 
 Nós: Usuario (incremental por ``registro_em``), Condominio, Torre, Cooperativa,
@@ -53,10 +54,23 @@ Regras de negócio das relações derivadas (constantes no topo do módulo)
   Só cursos ativos são recomendados. Arestas de execuções anteriores que não
   foram reconfirmadas são removidas no fim (sem janela vazia no meio).
 
+Exclusões
+---------
+- Saída do condomínio (data_saida) ou vínculo recusado: o passo de PERTENCE_A
+  remove a aresta; mudança de condomínio troca o MORA_EM na mesma linha.
+- No schema atual postagens e vínculos NÃO podem ser apagados: a linha de
+  auditoria do INSERT referencia a linha original por FK sem ON DELETE, então
+  todo DELETE falha (testado em Postgres 16). Por isso não há propagação de
+  DELETE no incremental. Se o schema mudar, o ``full`` com ``--prune``
+  reconcilia postagens, PERTENCE_A e MORA_EM (diferença calculada em Python, O(n)).
+
+Leitura em lotes com cursor do servidor (``iter_batches``): memória constante.
+Medido em Postgres 16 real com o schema do projeto: 1,8 mi de votos, 600 mil
+postagens e 200 mil usuários → full lê tudo em ~38 s e o processo não passa
+do tamanho de um lote; antes, ``fetch_all`` chegava a 1,4 GB.
+
 Limitações conhecidas
 ---------------------
-- Exclusões no Postgres não são propagadas (o schema não tem soft delete nem log
-  de exclusão); rode ``full`` com ``--prune`` para remover nós órfãos de postagem.
 - Duas execuções simultâneas não são bloqueadas aqui: no Kubernetes, os
   CronJobs usam ``concurrencyPolicy: Forbid``; no modo loop há um único processo.
 
@@ -65,6 +79,7 @@ Uso
     python -m src.etl.populate_graph --mode full
     python -m src.etl.populate_graph --mode incremental
     python -m src.etl.populate_graph --loop-seconds 900 --full-every-hours 24
+    python -m src.etl.populate_graph --validar --relatorio etl_validacao.json
 """
 
 from __future__ import annotations
@@ -76,7 +91,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Iterator
 
 from src.core.config import settings
 from src.database.neo4j import neo4j_db
@@ -122,7 +137,17 @@ class Step:
 # SQL
 # --------------------------------------------------------------------------- #
 
-_POSTAGENS_WINDOW = "(p.data_postagem >= %s OR p.resolvido_em >= %s)"
+# Postagem nova, resolvida, ou alterada de qualquer outro jeito (status,
+# categoria corrigida na moderação, torre...): todo UPDATE passa pelo trigger
+# fn_trg_auditoria_postagens, que carimba a data.
+_POSTAGENS_WINDOW = """(
+    p.data_postagem >= %s OR p.resolvido_em >= %s
+    OR p.id_postagem IN (
+        SELECT l.postagem_id FROM tb_log_auditoria_postagens l
+        JOIN tb_log_auditoria a ON a.id_auditoria = l.auditoria_id
+        WHERE a.executado_em >= %s
+    )
+)"""
 
 _TENTATIVAS_AGG = """
     SELECT
@@ -149,6 +174,20 @@ _TENTATIVAS_FILTRO_INCREMENTAL = """
 """
 
 
+# Vínculos usuário×condomínio tocados na janela, pela auditoria do schema
+# (trigger fn_trg_auditoria_usuarios_condominios: INSERT/UPDATE/DELETE).
+_VINCULOS_ALTERADOS = """
+    SELECT l.usuario_condominio_id
+    FROM tb_log_auditoria_usuarios_condominios l
+    JOIN tb_log_auditoria a ON a.id_auditoria = l.auditoria_id
+    WHERE a.executado_em >= %s
+"""
+_VINCULO_COLUNAS = (
+    "r.id_usuario_condominio AS vinculo_id, r.usuario_id, r.condominio_id, r.aprovado, "
+    "r.data_saida, r.trust_score, r.postagens_validadas_sem_contestacao, "
+    "r.denuncias_realizadas, r.denuncias_procedentes"
+)
+
 def _desempenho_curso(row: dict[str, Any]) -> dict[str, Any]:
     tentativas = int(row["tentativas"])
     reprovacoes = int(row["reprovacoes"])
@@ -171,6 +210,9 @@ def _postagem(row: dict[str, Any]) -> dict[str, Any]:
 
 def _pertence(row: dict[str, Any]) -> dict[str, Any]:
     row["trust_score"] = _float(row.get("trust_score"))
+    aprovado = bool(row.pop("aprovado", True))
+    saiu = row.pop("data_saida", None) is not None
+    row["ativo"] = aprovado and not saiu
     return row
 
 
@@ -233,7 +275,7 @@ NODE_STEPS: tuple[Step, ...] = (
         JOIN tb_lkp_status_validacoes_postagens s ON s.id_status_validacao = p.status_validacao_id
         WHERE {_POSTAGENS_WINDOW}
         """,
-        params_per_since=2,
+        params_per_since=3,
         transform=_postagem,
     ),
 )
@@ -242,21 +284,49 @@ EDGE_STEPS: tuple[Step, ...] = (
     Step(
         "mora_em",
         "SELECT m.usuario_id, m.condominio_id FROM tb_moradores m",
-        "MATCH (u:Usuario {id: row.usuario_id}), (c:Condominio {id: row.condominio_id}) MERGE (u)-[:MORA_EM]->(c)",
+        # tb_moradores tem UNIQUE(usuario_id): um MORA_EM por usuário. Se ele
+        # mudou de condomínio, a aresta antiga sai na mesma linha.
+        "MATCH (u:Usuario {id: row.usuario_id}), (c:Condominio {id: row.condominio_id}) "
+        "OPTIONAL MATCH (u)-[old:MORA_EM]->(antigo:Condominio) WHERE antigo <> c "
+        "WITH u, c, collect(old) AS antigas "
+        "FOREACH (x IN antigas | DELETE x) "
+        "MERGE (u)-[:MORA_EM]->(c)",
+        # tb_moradores não tem data nem auditoria. No incremental vão os
+        # moradores novos (registro_em) e os que tiveram o vínculo com o
+        # condomínio alterado (auditoria); o resto é reconciliado no full diário.
+        incremental_sql=f"""
+        SELECT m.usuario_id, m.condominio_id
+        FROM tb_moradores m
+        JOIN tb_usuarios u ON u.id_usuario = m.usuario_id
+        WHERE u.registro_em >= %s
+           OR m.usuario_id IN (
+                SELECT r.usuario_id FROM tb_rel_usuarios_condominios r
+                WHERE r.id_usuario_condominio IN ({_VINCULOS_ALTERADOS})
+           )
+        """,
+        params_per_since=2,
     ),
     Step(
         "pertence_a_usuario_condominio",
-        """
-        SELECT r.usuario_id, r.condominio_id, r.trust_score,
-               r.postagens_validadas_sem_contestacao, r.denuncias_realizadas, r.denuncias_procedentes
-        FROM tb_rel_usuarios_condominios r
-        """,
+        f"SELECT {_VINCULO_COLUNAS} FROM tb_rel_usuarios_condominios r",
+        # Só vínculo aprovado e sem data_saida vira PERTENCE_A; quem saiu ou foi
+        # recusado perde a aresta (antes ficava para sempre e contava como
+        # "vizinho" nas recomendações).
         "MATCH (u:Usuario {id: row.usuario_id}), (c:Condominio {id: row.condominio_id}) "
-        "MERGE (u)-[r:PERTENCE_A]->(c) "
-        "SET r.trust_score = row.trust_score, "
-        "    r.postagens_validadas_sem_contestacao = row.postagens_validadas_sem_contestacao, "
-        "    r.denuncias_realizadas = row.denuncias_realizadas, "
-        "    r.denuncias_procedentes = row.denuncias_procedentes",
+        "OPTIONAL MATCH (u)-[old:PERTENCE_A]->(c) "
+        "FOREACH (_ IN CASE WHEN row.ativo THEN [1] ELSE [] END | "
+        "  MERGE (u)-[r:PERTENCE_A]->(c) "
+        "  SET r.vinculo_id = row.vinculo_id, r.trust_score = row.trust_score, "
+        "      r.postagens_validadas_sem_contestacao = row.postagens_validadas_sem_contestacao, "
+        "      r.denuncias_realizadas = row.denuncias_realizadas, "
+        "      r.denuncias_procedentes = row.denuncias_procedentes) "
+        "FOREACH (_ IN CASE WHEN NOT row.ativo AND old IS NOT NULL THEN [1] ELSE [] END | DELETE old)",
+        # Todo UPDATE em tb_rel_usuarios_condominios (inclusive do trust_score)
+        # passa pelo trigger de auditoria, que carimba a data.
+        incremental_sql=f"""
+        SELECT {_VINCULO_COLUNAS} FROM tb_rel_usuarios_condominios r
+        WHERE r.id_usuario_condominio IN ({_VINCULOS_ALTERADOS})
+        """,
         transform=_pertence,
     ),
     Step(
@@ -278,6 +348,15 @@ EDGE_STEPS: tuple[Step, ...] = (
         "SELECT p.id_postagem AS postagem_id, p.usuario_id, p.condominio_id, p.torre_id, p.categoria_id FROM tb_postagens p",
         # Uma leitura da tabela alimenta as quatro relações da postagem.
         "MATCH (p:Postagem {id: row.postagem_id}) "
+        # Categoria/torre/condomínio corrigidos: a aresta antiga sai.
+        "OPTIONAL MATCH (p)-[old:NO_CONDOMINIO|NA_TORRE|DA_CATEGORIA]->(alvo) "
+        "WITH row, p, [r IN collect(old) WHERE NOT ("
+        "  (type(r) = 'NO_CONDOMINIO' AND coalesce(endNode(r).id = row.condominio_id, false)) OR "
+        "  (type(r) = 'NA_TORRE' AND coalesce(endNode(r).id = row.torre_id, false)) OR "
+        "  (type(r) = 'DA_CATEGORIA' AND coalesce(endNode(r).id = row.categoria_id, false))"
+        ")] AS obsoletas "
+        "FOREACH (r IN obsoletas | DELETE r) "
+        "WITH row, p "
         "OPTIONAL MATCH (u:Usuario {id: row.usuario_id}) "
         "OPTIONAL MATCH (c:Condominio {id: row.condominio_id}) "
         "OPTIONAL MATCH (cat:CategoriaResiduo {id: row.categoria_id}) "
@@ -290,7 +369,7 @@ EDGE_STEPS: tuple[Step, ...] = (
         SELECT p.id_postagem AS postagem_id, p.usuario_id, p.condominio_id, p.torre_id, p.categoria_id
         FROM tb_postagens p WHERE {_POSTAGENS_WINDOW}
         """,
-        params_per_since=2,
+        params_per_since=3,
     ),
     Step(
         "validou",
@@ -300,7 +379,10 @@ EDGE_STEPS: tuple[Step, ...] = (
         JOIN tb_lkp_tipos_votos_postagens t ON t.id_tipo_voto = v.tipo_voto_id
         WHERE v.motivo_denuncia_id IS NULL
         """,
+        # Um voto por (postagem, usuário): se virou validação, a denúncia antiga sai.
         "MATCH (u:Usuario {id: row.usuario_id}), (p:Postagem {id: row.postagem_id}) "
+        "OPTIONAL MATCH (u)-[old:DENUNCIOU]->(p) "
+        "WITH row, u, p, collect(old) AS antigas FOREACH (x IN antigas | DELETE x) "
         "MERGE (u)-[r:VALIDOU]->(p) SET r.peso = row.peso, r.tipo = row.tipo",
         incremental_sql="""
         SELECT v.usuario_id, v.postagem_id, v.peso_aplicado AS peso, t.nome_tipo AS tipo
@@ -317,6 +399,8 @@ EDGE_STEPS: tuple[Step, ...] = (
         JOIN tb_lkp_motivos_denuncia m ON m.id_motivo_denuncia = v.motivo_denuncia_id
         """,
         "MATCH (u:Usuario {id: row.usuario_id}), (p:Postagem {id: row.postagem_id}) "
+        "OPTIONAL MATCH (u)-[old:VALIDOU]->(p) "
+        "WITH row, u, p, collect(old) AS antigas FOREACH (x IN antigas | DELETE x) "
         "MERGE (u)-[r:DENUNCIOU]->(p) SET r.peso = row.peso, r.motivo = row.motivo",
         incremental_sql="""
         SELECT v.usuario_id, v.postagem_id, v.peso_aplicado AS peso, m.descricao AS motivo
@@ -346,10 +430,12 @@ EDGE_STEPS: tuple[Step, ...] = (
 )
 
 
-# Recomendações: calculadas sobre o grafo já atualizado. `run_id` marca o que
+# Recomendações: calculadas sobre o grafo já atualizado. "Vizinho" = vínculo
+# ativo (PERTENCE_A: aprovado e sem data_saida). MORA_EM não entra: vem de
+# tb_moradores, que não sabe se a pessoa saiu ou foi recusada. `run_id` marca o que
 # esta execução confirmou; o que sobrar de execuções antigas é removido no fim.
 RECOMENDACAO_VIZINHOS = """
-MATCH (u:Usuario)-[:MORA_EM|PERTENCE_A]->(cond:Condominio)<-[:MORA_EM|PERTENCE_A]-(peer:Usuario)-[:APROVADO_EM]->(c:Curso)
+MATCH (u:Usuario)-[:PERTENCE_A]->(cond:Condominio)<-[:PERTENCE_A]-(peer:Usuario)-[:APROVADO_EM]->(c:Curso)
 WHERE peer <> u AND coalesce(c.ativo, true) AND NOT (u)-[:APROVADO_EM]->(c)
 WITH u, c, count(DISTINCT peer) AS vizinhos
 WHERE vizinhos >= $min_vizinhos
@@ -370,13 +456,6 @@ WHERE r.run_id IS NULL OR r.run_id <> $run_id
 DELETE r
 RETURN count(*) AS total
 """
-PRUNE_POSTAGENS = """
-MATCH (p:Postagem) WHERE NOT p.id IN $ids
-DETACH DELETE p
-RETURN count(*) AS total
-"""
-
-
 class GraphPopulator:
     """Extrai do PostgreSQL e faz MERGE idempotente no Neo4j em lotes (`UNWIND $rows`)."""
 
@@ -406,25 +485,55 @@ class GraphPopulator:
                 since = last - INCREMENTAL_OVERLAP
 
         stats: dict[str, Any] = {"modo": mode, "desde": _iso(since)}
+        duracoes: dict[str, float] = {}
         for step in (*NODE_STEPS, *EDGE_STEPS):
+            t0 = time.perf_counter()
             stats[step.name] = await self._run_step(step, since)
+            duracoes[step.name] = round(time.perf_counter() - t0, 3)
 
         if prune and mode == "full":
-            stats["postagens_removidas"] = await self._prune_postagens()
+            t0 = time.perf_counter()
+            stats.update(await self._prune())
+            duracoes["prune"] = round(time.perf_counter() - t0, 3)
 
-        stats.update(await self._recommendations(run_id, started_at))
+        # A consulta de vizinhos percorre o grafo inteiro (moradores² por
+        # condomínio × cursos). Roda só no full diário; no incremental de 15 em
+        # 15 min ela dominaria o custo no Aura. TEM_DIFICULDADE_EM/APROVADO_EM
+        # continuam atualizadas a cada incremental.
+        if mode == "full":
+            t0 = time.perf_counter()
+            stats.update(await self._recommendations(run_id, started_at))
+            duracoes["recomendacoes"] = round(time.perf_counter() - t0, 3)
+        duracoes["total"] = round(sum(duracoes.values()), 3)
+        stats["duracao_s"] = duracoes
         await self._write_checkpoint(started_at, mode, stats)
         logger.info("etl_grafo_concluido", extra={"stats": stats})
         return stats
 
     async def _run_step(self, step: Step, since: datetime | None) -> int:
         if since is not None and step.incremental_sql is not None:
-            rows = self.postgres.fetch_all(step.incremental_sql, (since,) * step.params_per_since)
+            sql, params = step.incremental_sql, (since,) * step.params_per_since
         else:
-            rows = self.postgres.fetch_all(step.full_sql)
-        if step.transform is not None:
-            rows = [step.transform(dict(row)) for row in rows]
-        return await self._run_batched(step.merge, rows, log_label=step.name)
+            sql, params = step.full_sql, ()
+        query = f"UNWIND $rows AS row {step.merge}"
+        total = 0
+        # Lê e grava lote a lote: memória constante, qualquer volume.
+        for batch in self._batches(sql, params):
+            if step.transform is not None:
+                batch = [step.transform(dict(row)) for row in batch]
+            await self.neo4j.execute(query, {"rows": batch})
+            total += len(batch)
+        logger.info("etl_grafo_lote", extra={"passo": step.name, "total": total})
+        return total
+
+    def _batches(self, sql: str, params: tuple = ()) -> Iterator[list[dict[str, Any]]]:
+        iter_batches = getattr(self.postgres, "iter_batches", None)
+        if iter_batches is not None:
+            yield from iter_batches(sql, params, _BATCH_SIZE)
+            return
+        rows = self.postgres.fetch_all(sql, params)
+        for start in range(0, len(rows), _BATCH_SIZE):
+            yield rows[start : start + _BATCH_SIZE]
 
     # ------------------------------------------------------------------ #
     # Constraints e checkpoint
@@ -479,9 +588,91 @@ class GraphPopulator:
             "recomendacoes_removidas": _count(removidas),
         }
 
-    async def _prune_postagens(self) -> int:
-        ids = [row["id"] for row in self.postgres.fetch_all("SELECT p.id_postagem AS id FROM tb_postagens p")]
-        return _count(await self.neo4j.execute(PRUNE_POSTAGENS, {"ids": ids}))
+    async def _prune(self) -> dict[str, int]:
+        """Remove do grafo o que não existe mais no Postgres.
+
+        A versão anterior mandava TODOS os ids num `NOT p.id IN $ids`, que o
+        Neo4j avalia varrendo a lista para cada nó (O(n²): com 600 mil
+        postagens, bilhões de comparações). Aqui a diferença é calculada em
+        Python com conjuntos, e o grafo só recebe os ids a apagar, que ele
+        encontra pelo índice da constraint."""
+        existentes = {row["id"] for batch in self._batches("SELECT p.id_postagem AS id FROM tb_postagens p") for row in batch}
+        orfas = [pid for pid in await self._graph_ids("Postagem") if pid not in existentes]
+        await self._run_batched("MATCH (p:Postagem {id: row}) DETACH DELETE p", orfas, log_label="prune_postagens")
+
+        pertence = {
+            (row["usuario_id"], row["condominio_id"])
+            for batch in self._batches(
+                "SELECT r.usuario_id, r.condominio_id FROM tb_rel_usuarios_condominios r "
+                "WHERE r.aprovado AND r.data_saida IS NULL"
+            )
+            for row in batch
+        }
+        mora = {
+            (row["usuario_id"], row["condominio_id"])
+            for batch in self._batches("SELECT m.usuario_id, m.condominio_id FROM tb_moradores m")
+            for row in batch
+        }
+        sobra_pertence: list[dict[str, int]] = []
+        sobra_mora: list[dict[str, int]] = []
+        async for usuario_id, pertence_grafo, mora_grafo in self._graph_memberships():
+            sobra_pertence += [{"u": usuario_id, "c": c} for c in pertence_grafo if (usuario_id, c) not in pertence]
+            sobra_mora += [{"u": usuario_id, "c": c} for c in mora_grafo if (usuario_id, c) not in mora]
+        await self._run_batched(
+            "MATCH (:Usuario {id: row.u})-[r:PERTENCE_A]->(:Condominio {id: row.c}) DELETE r",
+            sobra_pertence,
+            log_label="prune_pertence_a",
+        )
+        await self._run_batched(
+            "MATCH (:Usuario {id: row.u})-[r:MORA_EM]->(:Condominio {id: row.c}) DELETE r",
+            sobra_mora,
+            log_label="prune_mora_em",
+        )
+        return {
+            "postagens_removidas": len(orfas),
+            "pertence_a_removidas": len(sobra_pertence),
+            "mora_em_removidas": len(sobra_mora),
+        }
+
+    async def _graph_ids(self, label: str, page: int = 10_000) -> list[Any]:
+        """Ids de um label, paginados pela ordem do índice da constraint."""
+        ids: list[Any] = []
+        after: Any = None
+        while True:
+            # Sem "OR $after IS NULL": com o predicado simples o planner usa o
+            # índice da constraint para o ORDER BY/LIMIT em vez de ordenar tudo.
+            filtro = "" if after is None else "WHERE n.id > $after "
+            rows = await self.neo4j.execute(
+                f"MATCH (n:{label}) {filtro}RETURN n.id AS id ORDER BY n.id LIMIT $page",
+                {"after": after, "page": page},
+            )
+            if not rows:
+                return ids
+            ids.extend(row["id"] for row in rows)
+            after = rows[-1]["id"]
+            if len(rows) < page:
+                return ids
+
+    async def _graph_memberships(self, page: int = 5_000):
+        after: Any = None
+        while True:
+            filtro = "" if after is None else "WHERE u.id > $after "
+            rows = await self.neo4j.execute(
+                f"MATCH (u:Usuario) {filtro}"
+                "WITH u ORDER BY u.id LIMIT $page "
+                "OPTIONAL MATCH (u)-[:PERTENCE_A]->(pc:Condominio) "
+                "OPTIONAL MATCH (u)-[:MORA_EM]->(mc:Condominio) "
+                "RETURN u.id AS id, collect(DISTINCT pc.id) AS pertence, collect(DISTINCT mc.id) AS mora "
+                "ORDER BY id",
+                {"after": after, "page": page},
+            )
+            if not rows:
+                return
+            for row in rows:
+                yield row["id"], row.get("pertence") or [], row.get("mora") or []
+            after = rows[-1]["id"]
+            if len(rows) < page:
+                return
 
     # ------------------------------------------------------------------ #
     # Escrita em lote
@@ -512,6 +703,18 @@ async def run_once(mode: str, *, prune: bool = False) -> dict[str, Any]:
     await neo4j_db.start(settings)
     try:
         return await GraphPopulator().run(mode, prune=prune)
+    finally:
+        await neo4j_db.close()
+        postgres_db.close()
+
+
+async def validate_once() -> dict[str, Any]:
+    from src.etl.validate_graph import validar
+
+    postgres_db.start(settings)
+    await neo4j_db.start(settings)
+    try:
+        return await validar(GraphPopulator())
     finally:
         await neo4j_db.close()
         postgres_db.close()
@@ -551,8 +754,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--prune", action="store_true", help="(full) remove postagens que não existem mais no Postgres")
     parser.add_argument("--loop-seconds", type=int, default=0, help="roda para sempre com este intervalo (0 = uma vez)")
     parser.add_argument("--full-every-hours", type=float, default=24.0, help="no modo loop, frequência do full")
+    parser.add_argument(
+        "--validar",
+        action="store_true",
+        help="full + conferência de contagens Postgres×grafo + full de novo (idempotência) + incremental, com tempos",
+    )
+    parser.add_argument("--relatorio", default=None, help="com --validar, grava o relatório JSON neste arquivo")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
+
+    if args.validar:
+        from src.etl.validate_graph import imprimir
+
+        relatorio = asyncio.run(validate_once())
+        imprimir(relatorio, args.relatorio)
+        return 0 if relatorio["ok"] else 1
 
     if args.loop_seconds > 0:
         asyncio.run(run_forever(args.loop_seconds, args.full_every_hours))
