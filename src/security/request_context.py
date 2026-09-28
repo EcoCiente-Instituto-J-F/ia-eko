@@ -18,7 +18,13 @@ def authenticated_request_context(token: str | None) -> Iterator[None]:
     try:
         yield
     finally:
-        _bearer_token.reset(context_token)
+        try:
+            _bearer_token.reset(context_token)
+        except ValueError:
+            # Gerador SSE finalizado em outro Context (cliente desconectou e o
+            # finalizador de async generators fechou o stream): o Context da
+            # request já foi descartado junto com o valor.
+            pass
 
 
 def current_bearer_token() -> str | None:
