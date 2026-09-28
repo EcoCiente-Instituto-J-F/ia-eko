@@ -38,19 +38,19 @@ você.
 
 ### SAÍDA
 Retorne somente JSON válido:
-{
+{{
   "route": "coletas | educador | analytics | grafo | faq",
   "mensagem_original": "<mensagem integral e sem edição>",
-  "contexto_usuario": {
+  "contexto_usuario": {{
     "perfil_autenticado": "<valor recebido da aplicação>",
     "permissoes": <valor recebido da aplicação>,
     "contexto_relevante": "<síntese mínima da memória ou string vazia>",
     "ultima_rota": "coletas | educador | analytics | faq | null"
-  }
-}
+  }}
+}}
 """
 
-ORQUESTRADOR_MEMORY_TOOL = f"""
+ORQUESTRADOR_MEMORY_TOOL = """
 Não existe prompt de “agente de memória”. A tool deve ser chamada como `obter_memoria()`, sem argumentos de identidade, e retornar um contrato semelhante a:
 
 json

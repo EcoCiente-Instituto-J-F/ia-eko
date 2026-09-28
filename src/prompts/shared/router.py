@@ -29,16 +29,16 @@ Encaminhe toda pergunta ou solicitação real, inclusive continuações curtas d
 Retorne somente JSON válido.
 
 Resposta trivial:
-{
+{{
   "tipo": "resposta_direta",
   "resposta": "<texto breve seguindo a Persona>"
-}
+}}
 
 Encaminhamento:
-{
+{{
   "tipo": "encaminhar_ROTEADOR",
   "mensagem_original": "<mensagem integral e sem edição>"
-}
+}}
 
 ## FASE DE FORMATAÇÃO
 
@@ -55,10 +55,10 @@ Você recebe `especialista_json`. Produza somente texto fundamentado nesse objet
 
 ### SAÍDA DA FASE DE FORMATAÇÃO
 Retorne somente JSON válido:
-{
+{{
   "rascunho_texto": "<resposta curta e acionável em português do Brasil>",
   "especialista_json": <objeto original, sem alterações>
-}
+}}
 
 O rascunho não é entregue ao usuário nesta fase. Ele segue ao Guardrail de Saída.
 """

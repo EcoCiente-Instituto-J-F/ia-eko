@@ -9,6 +9,7 @@ from src.core.config import Settings
 from src.core.llm import build_chat_model
 from src.observability.metrics import LLM_LATENCY, TOOL_LATENCY
 from src.observability.tracing import TracingService, record_usage
+from src.prompts.shared.temporal import linha_data_hora
 
 
 class AgentSuite:
@@ -58,8 +59,10 @@ class AgentSuite:
         agent = self.agents[agent_name]
         started = time.perf_counter()
         config = self.tracing.run_config(agent_name)
+        # Data atual a cada chamada: o prompt de sistema é fixo desde o boot.
+        content = f"{linha_data_hora(self.settings.quota_timezone)}\n\n{prompt}"
         result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": prompt}]},
+            {"messages": [{"role": "user", "content": content}]},
             config=config or None,
         )
         LLM_LATENCY.labels(provider=self.settings.llm_provider, agent=agent_name).observe(

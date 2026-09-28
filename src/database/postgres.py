@@ -77,6 +77,44 @@ class PostgresDatabase:
             cur.execute(query, tuple(params))
             return [dict(row) for row in cur.fetchall()]
 
+    def iter_batches(
+        self, query: str, params: Sequence[Any] = (), batch_size: int = 1000
+    ) -> Iterator[list[dict[str, Any]]]:
+        """Lê em lotes com cursor do lado do servidor (memória constante).
+
+        `fetch_all` materializa a tabela inteira: no ETL do grafo, com 1,8 mi
+        de votos, o processo passava de 1,4 GB e estourava o limite do CronJob.
+        Cursor nomeado exige transação, então a conexão sai do autocommit só
+        durante a leitura (continua read-only; `connection()` restaura o
+        autocommit na próxima vez que a conexão for usada)."""
+        current = self._pool
+        if current is None:
+            raise PostgresUnavailable("PostgreSQL não está configurado ou o pool não foi inicializado.")
+        conn = current.getconn()
+        broken = False
+        try:
+            conn.set_session(readonly=True, autocommit=False)
+            with conn.cursor(name=f"ecociente_lote_{id(conn)}", cursor_factory=RealDictCursor) as cur:
+                cur.itersize = batch_size
+                cur.execute(query, tuple(params))
+                while True:
+                    rows = cur.fetchmany(batch_size)
+                    if not rows:
+                        break
+                    yield [dict(row) for row in rows]
+        except GeneratorExit:
+            # Consumidor parou antes do fim: não é erro de conexão.
+            raise
+        except BaseException:
+            broken = True
+            raise
+        finally:
+            try:
+                conn.rollback()
+            except Exception:
+                broken = True
+            current.putconn(conn, close=broken)
+
     def fetch_one(self, query: str, params: Sequence[Any] = ()) -> dict[str, Any] | None:
         with self.connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(query, tuple(params))

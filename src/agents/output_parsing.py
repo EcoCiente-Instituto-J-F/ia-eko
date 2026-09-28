@@ -80,8 +80,8 @@ def _status_token(raw: str | None) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def parse_route(text: str) -> str:
-    """`faq` é o fallback seguro: é o especialista de menor privilégio."""
+def parse_route_strict(text: str) -> str | None:
+    """Rota lida da saída, ou None se a saída não trouxer uma rota válida."""
     data = extract_json_object(text)
     candidate = None
     if data is not None:
@@ -89,10 +89,15 @@ def parse_route(text: str) -> str:
     if not candidate:
         candidate = _kv(text, "ROUTE") or _kv(text, "ROTA")
     if not candidate:
-        return "faq"
+        return None
     token = re.split(r"[\s|,]", str(candidate).strip().strip("\"'").lower())[0]
     token = _ROUTE_ALIASES.get(token, token)
-    return token if token in VALID_ROUTES else "faq"
+    return token if token in VALID_ROUTES else None
+
+
+def parse_route(text: str) -> str:
+    """`faq` é o fallback seguro: é o especialista de menor privilégio."""
+    return parse_route_strict(text) or "faq"
 
 
 # --------------------------------------------------------------------------- #

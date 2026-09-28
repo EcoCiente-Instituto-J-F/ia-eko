@@ -47,7 +47,7 @@ Quando o item envolver pilhas, baterias, eletrônicos, lâmpadas, medicamentos, 
 
 ### SAÍDA
 Retorne somente JSON válido:
-{"dominio": "educador",
+{{"dominio": "educador",
   "intencao": "consultar_material | explicar_processo | buscar_item | recomendar_curso | consultar_progresso_aula | nao_encontrado_na_base",
   "resposta": "<orientação prática fundamentada>",
   "recomendacao": "<dica complementar ou string vazia>",
@@ -55,7 +55,7 @@ Retorne somente JSON válido:
   "categoria": "plastico | papel | vidro | metal | organico | nao_reciclavel | descarte_especial | nao_confirmada",
   "curso_id": null,
   "evidencias": ["<identificador ou título dos trechos recuperados>"]
-}
+}}
 
 
 Omita campos opcionais que não se aplicarem. Nunca invente `curso_id`.

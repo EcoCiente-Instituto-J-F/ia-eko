@@ -10,7 +10,7 @@ from src.api.schemas.chat import ChatRequest, ChatResponse, QuotaInfo
 from src.observability.middleware import current_request_id
 from src.services.chat_service import ChatService
 from src.services.quota_service import QuotaExceeded
-from src.services.session_service import SessionForbidden, SessionNotFound, StorageUnavailable
+from src.services.session_service import SessionBusy, SessionForbidden, SessionNotFound, StorageUnavailable
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
@@ -30,6 +30,13 @@ def _http_errors() -> Iterator[None]:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={"codigo": f"limite_{exc.kind}", "mensagem": exc.message},
             headers=headers,
+        ) from exc
+    except SessionBusy as exc:
+        # A cota já foi devolvida pelo ChatService; o cliente pode reenviar.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"codigo": "sessao_ocupada", "mensagem": str(exc)},
+            headers={"Retry-After": "2"},
         ) from exc
     except SessionForbidden as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc

@@ -59,6 +59,17 @@ QUOTA_REJECTED = Counter(
     "Requisições recusadas por limite de uso",
     ["perfil", "kind"],
 )
+SESSION_LOCK_WAIT = Histogram(
+    "ecociente_session_lock_wait_seconds",
+    "Espera pelo lock da sessão antes de processar a mensagem",
+    ["backend"],
+    buckets=(0.001, 0.01, 0.05, 0.1, 0.5, 1, 2.5, 5, 10, 20, 45),
+)
+SESSION_LOCK_EVENTS = Counter(
+    "ecociente_session_lock_events_total",
+    "Eventos do lock de sessão (acquired_redis, acquired_local, timeout, lost, redis_error)",
+    ["outcome"],
+)
 ROUTING_DECISIONS = Counter(
     "ecociente_routing_decisions_total",
     "Rotas escolhidas pelo orquestrador",

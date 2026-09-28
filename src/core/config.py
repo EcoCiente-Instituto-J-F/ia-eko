@@ -139,6 +139,13 @@ class Settings:
     # Anti-rajada: requisições por minuto por usuário, qualquer perfil.
     rate_limit_per_minute: int = 10
 
+    # Lock da sessão entre réplicas (Redis SET NX PX). O TTL é renovado
+    # enquanto a resposta é gerada; se o pod morrer, a sessão é liberada
+    # em até SESSION_LOCK_TTL_SECONDS. WAIT = quanto uma segunda mensagem da
+    # mesma sessão espera a primeira terminar antes de receber 409.
+    session_lock_ttl_seconds: float = 30.0
+    session_lock_wait_seconds: float = 45.0
+
     # Integração real. Nunca devem apontar para produção quando APP_ENV=test.
     run_integration_tests: bool = False
     test_postgres_url: str | None = None
@@ -244,6 +251,8 @@ class Settings:
             quota_sindico_comercial=_int("QUOTA_SINDICO_COMERCIAL", 100),
             quota_no_compaction_profiles=_get("QUOTA_NO_COMPACTION_PROFILES", "USUARIO_COMUM") or "",
             rate_limit_per_minute=_int("RATE_LIMIT_PER_MINUTE", 10),
+            session_lock_ttl_seconds=_float("SESSION_LOCK_TTL_SECONDS", 30.0),
+            session_lock_wait_seconds=_float("SESSION_LOCK_WAIT_SECONDS", 45.0),
             run_integration_tests=_bool("RUN_INTEGRATION_TESTS", False),
             test_postgres_url=_get("TEST_POSTGRES_URL"),
             test_mongodb_uri=_get("TEST_MONGODB_URI"),

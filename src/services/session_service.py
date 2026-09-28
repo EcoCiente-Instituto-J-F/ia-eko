@@ -14,6 +14,9 @@ if TYPE_CHECKING:
     from src.database.mongodb import MongoDatabase
     from src.database.redis import RedisDatabase
 from src.observability.metrics import DB_LATENCY
+from src.services.session_lock import SessionBusy, SessionLockManager
+
+__all__ = ["SessionBusy", "SessionService"]
 
 logger = logging.getLogger("ecociente.sessions")
 
@@ -87,9 +90,15 @@ class SessionService:
         self.mongo = mongo
         self.redis_db = redis
         self._memory_sessions: dict[str, dict[str, Any]] = {}
-        self._conversation_locks: dict[str, asyncio.Lock] = {}
         self._compaction_locks: dict[str, asyncio.Lock] = {}
         self.mode = settings.storage_mode
+        # Redis só entra no lock quando as sessões estão no Mongo/Redis; com
+        # sessões em memória não existe outra réplica com a mesma sessão.
+        self.locks = SessionLockManager(
+            redis_getter=lambda: self.redis if self.mode != "memory" else None,
+            ttl_seconds=settings.session_lock_ttl_seconds,
+            wait_seconds=settings.session_lock_wait_seconds,
+        )
 
     @property
     def db(self):
@@ -172,9 +181,9 @@ class SessionService:
 
     @asynccontextmanager
     async def conversation_guard(self, session_id: str) -> AsyncIterator[None]:
-        """Serializa mensagens da mesma sessão no processo para preservar a ordem conversacional."""
-        lock = self._conversation_locks.setdefault(session_id, asyncio.Lock())
-        async with lock:
+        """Serializa mensagens da mesma sessão, inclusive entre réplicas
+        (Redis). Levanta SessionBusy se a sessão não liberar a tempo."""
+        async with self.locks.hold(session_id):
             yield
 
     async def append_message(self, session_id: str, usuario_id: int, role: str, content: str) -> None:
@@ -337,7 +346,6 @@ class SessionService:
         await self.get_session(session_id, usuario_id)
         if self.mode == "memory":
             self._memory_sessions.pop(session_id, None)
-            self._conversation_locks.pop(session_id, None)
             self._compaction_locks.pop(session_id, None)
             return {"session_id": session_id, "status": "closed"}
         if self.db is None or self.redis is None:
@@ -346,7 +354,6 @@ class SessionService:
         pointer_key = f"session:ptr:{usuario_id}"
         if await self.redis.get(pointer_key) == session_id:
             await self.redis.delete(pointer_key)
-        self._conversation_locks.pop(session_id, None)
         self._compaction_locks.pop(session_id, None)
         return {"session_id": session_id, "status": "closed"}
 

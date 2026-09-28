@@ -332,3 +332,39 @@ async def test_concurrent_requests_cannot_bypass_session_cap() -> None:
     stored = await sessions.get_session(session_id, 1001)
     assert len(stored["messages"]) == 4  # a mensagem barrada nem foi gravada
     assert (await quotas.status(user)).used == 2  # e a cota dela foi devolvida
+
+
+def test_http_busy_session_returns_409_and_refunds_quota(make_client) -> None:
+    """Sessão presa em outra réplica além do SESSION_LOCK_WAIT_SECONDS."""
+    from contextlib import asynccontextmanager
+
+    from src.services.session_lock import SessionBusy
+
+    client = make_client(quota_usuario_comum=5, rate_limit_per_minute=100)
+    headers = _headers(4242, "comum")
+    first = client.post("/api/v1/chat", headers=headers, json={"mensagem": "Oi"}).json()
+    sessions = client.app.state.sessions
+
+    @asynccontextmanager
+    async def busy(session_id):
+        raise SessionBusy(session_id, 45.0)
+        yield  # pragma: no cover
+
+    original = sessions.conversation_guard
+    sessions.conversation_guard = busy
+    try:
+        resp = client.post("/api/v1/chat", headers=headers, json={"session_id": first["session_id"], "mensagem": "De novo"})
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["codigo"] == "sessao_ocupada"
+        assert resp.headers["Retry-After"] == "2"
+
+        with client.stream(
+            "POST", "/api/v1/chat/stream", headers=headers, json={"session_id": first["session_id"], "mensagem": "De novo"}
+        ) as stream:
+            body = "".join(stream.iter_text())
+        assert "event: error" in body and "sessao_ocupada" in body
+    finally:
+        sessions.conversation_guard = original
+
+    # Só a primeira resposta consumiu cota; as duas barradas foram devolvidas.
+    assert client.get("/api/v1/chat/quota", headers=headers).json()["usadas_hoje"] == 1

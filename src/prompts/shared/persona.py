@@ -1,7 +1,3 @@
-from datetime import datetime
-
-_data_hora_fmt = datetime.now().strftime("%d/%m/%Y, %H:%M:%S")
-
 # ==============================================================================
 # PERSONA SISTEMA — bloco compartilhado repassado aos agentes que falam com o usuário
 # (Juiz de Entrada, Memória, Juiz de Saída e Consolidador de Memória nunca respondem
@@ -24,11 +20,4 @@ cooperativa) e o conhecimento ou os dados de que ele precisa para agir.
 - Incentive práticas sustentáveis sem moralismo, culpa, alarmismo ou repetição.
 - Não invente dados, regras, datas, classificações, resultados de tools ou funcionalidades.
 - Quando não houver base suficiente, diga isso de modo direto e indique o próximo passo seguro.
-"""
-
-_CONTEXTO_TEMPORAL = f"""
-### CONTEXTO TEMPORAL
-Data e hora atual (fornecida pelo sistema): {_data_hora_fmt}
-Use esta referência para interpretar "hoje", "esta semana", "este mês", calcular datas relativas
-de coleta e delimitar períodos em consultas analíticas.
 """
