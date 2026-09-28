@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from contextlib import aclosing
 from typing import Any, AsyncIterator
 
 from src.agents.graph import EcoGraphRuntime
@@ -9,7 +10,7 @@ from src.observability.metrics import AGENTS_CALLED, TOKENS_PER_CHAT
 from src.observability.tracing import ConversationTrace, TracingService, conversation_trace
 from src.security.request_context import authenticated_request_context
 from src.services.quota_service import QuotaExceeded, QuotaService, QuotaStatus
-from src.services.session_service import SessionService
+from src.services.session_service import SessionBusy, SessionService
 from src.shared.context import UserContext
 
 # Rótulos exibidos no stream de progresso (nós internos agrupados).
@@ -219,21 +220,28 @@ class ChatService:
                     request_id=request_id,
                     perfil=user_context.perfil,
                 ) as trace, authenticated_request_context(user_context.token):
-                    async for mode, chunk in self.graph.astream(
-                        self._initial_state(request, request_id, session_id, user_context)
-                    ):
-                        if mode == "values":
-                            state = chunk
-                            continue
-                        for node in chunk:
-                            label = _PROGRESS_LABELS.get(node)
-                            if label and label != last_label:
-                                last_label = label
-                                yield "progress", {"step": node, "label": label}
+                    # aclosing: se o cliente desconectar, o stream do grafo é
+                    # fechado junto (sem tarefas do LangGraph órfãs).
+                    async with aclosing(
+                        self.graph.astream(self._initial_state(request, request_id, session_id, user_context))
+                    ) as events:
+                        async for mode, chunk in events:
+                            if mode == "values":
+                                state = chunk
+                                continue
+                            for node in chunk:
+                                label = _PROGRESS_LABELS.get(node)
+                                if label and label != last_label:
+                                    last_label = label
+                                    yield "progress", {"step": node, "label": label}
                 answer = await self._finish(session_id, user_id, state)
         except QuotaExceeded as exc:
             await self._refund(quota_status)
             yield "error", {"codigo": f"limite_{exc.kind}", "detail": exc.message}
+            return
+        except SessionBusy as exc:
+            await self._refund(quota_status)
+            yield "error", {"codigo": "sessao_ocupada", "detail": str(exc)}
             return
         except Exception:
             await self._refund(quota_status)
