@@ -42,6 +42,13 @@ data:
   QUOTA_SINDICO_COMERCIAL: "100"
   QUOTA_NO_COMPACTION_PROFILES: "USUARIO_COMUM"
   RATE_LIMIT_PER_MINUTE: "10"
+  # Lock da sessão entre réplicas (precisa de Redis: STORAGE_MODE diferente de memory).
+  SESSION_LOCK_TTL_SECONDS: "30"
+  SESSION_LOCK_WAIT_SECONDS: "45"
+
+  # FAQ: rag (FAISS + LLM) ou qdrant (resposta canônica, sem LLM; exige carga
+  # com python -m src.etl.populate_qdrant e ~2,5 GB de memória para o modelo).
+  FAQ_BACKEND: "rag"
 
   TRACING_PROVIDER: "none"
   TRACING_MASK_PII: "true"
