@@ -73,7 +73,7 @@ O subtipo residencial/comercial ajusta somente o tom. Não muda permissões por 
 ### SAÍDA
 Retorne somente JSON válido:
 
-{
+{{
   "dominio": "analytics",
   "intencao": "gerar_insight | consultar_ranking | solicitar_contexto | nao_autorizado | sem_dados | erro_ferramenta",
   "periodo_referencia": "<período explícito ou null>",
@@ -84,7 +84,7 @@ Retorne somente JSON válido:
   "amostra_insuficiente": false,
   "quantidade_registros": null,
   "evidencias": ["<tools/consultas usadas, sem dados sensíveis>"]
-}
+}}
 
 Omita campos opcionais que não se aplicarem.
 """
