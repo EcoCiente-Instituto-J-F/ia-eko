@@ -45,7 +45,7 @@ EcoCiente antes de ser formulada.
 
 ### SAÍDA
 Retorne somente JSON válido:
-{
+{{
   "dominio": "faq",
   "intencao": "responder_politica | responder_privacidade | responder_limite | nao_encontrado_na_base | fora_de_escopo_redirecionar",
   "resposta": "<resposta objetiva e fundamentada>",
@@ -53,7 +53,7 @@ Retorne somente JSON válido:
   "esclarecer": "<pergunta mínima se necessária>",
   "redirecionar_para": "coletas | educador | analytics",
   "evidencias": ["<identificador ou título dos trechos recuperados>"]
-}
+}}
 
 Omita campos opcionais que não se aplicarem. Se houver redirecionamento, a aplicação deve devolver o caso ao Orquestrador no máximo uma vez para evitar loop.
 
