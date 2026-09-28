@@ -132,7 +132,28 @@ class QdrantFaqService:
         if not await self.client.collection_exists(self.collection_name):
             return {"collection": self.collection_name, "existe": False, "points_count": 0}
         info = await self.client.get_collection(self.collection_name)
-        return {"collection": self.collection_name, "existe": True, "points_count": info.points_count}
+        resultado: dict[str, Any] = {"collection": self.collection_name, "existe": True, "points_count": info.points_count}
+        # A carga (src/etl/populate_qdrant.py) grava em cada ponto o modelo que
+        # gerou o vetor. Modelo diferente do configurado = scores sem sentido,
+        # e o sintoma seria silencioso ("não encontrei" ou resposta errada).
+        from qdrant_client import models
+
+        # Só pontos da carga do FAQ carregam o modelo; outro conteúdo na coleção
+        # não pode esconder uma divergência.
+        pontos, _ = await self.client.scroll(
+            self.collection_name,
+            scroll_filter=models.Filter(
+                must=[models.FieldCondition(key="tipo", match=models.MatchValue(value="faq_canonica"))]
+            ),
+            limit=1,
+            with_payload=["embedding_model"],
+        )
+        indexado = (pontos[0].payload or {}).get("embedding_model") if pontos else None
+        configurado = self.settings.qdrant_embedding_model
+        if indexado and indexado != configurado:
+            resultado["modelo_indexado"] = indexado
+            resultado["modelo_configurado"] = configurado
+        return resultado
 
     async def health(self) -> str:
         try:
@@ -140,4 +161,12 @@ class QdrantFaqService:
         except Exception:
             logger.warning("qdrant_health_falhou", exc_info=True)
             return "error"
-        return "ok" if info["existe"] else "error"
+        if "modelo_indexado" in info:
+            logger.error(
+                "qdrant_modelo_divergente",
+                extra={"indexado": info["modelo_indexado"], "configurado": info["modelo_configurado"]},
+            )
+            return "error"
+        # Coleção vazia também é erro: com FAQ_BACKEND=qdrant toda pergunta
+        # cairia em "não encontrei". Rode python -m src.etl.populate_qdrant.
+        return "ok" if info["existe"] and info["points_count"] else "error"
