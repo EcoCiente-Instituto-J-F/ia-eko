@@ -208,3 +208,63 @@ def test_chat_stream_limit_is_plain_429_before_stream(client) -> None:
     blocked = client.post("/api/v1/chat/stream", headers=headers, json={"mensagem": "Oi"})
     assert blocked.status_code == 429
     assert blocked.json()["detail"]["codigo"] == "limite_daily"
+
+
+@pytest.mark.asyncio
+async def test_stream_closed_from_another_context_releases_everything_cleanly() -> None:
+    """Cliente fecha o SSE no meio: o gerador é finalizado depois, em outro
+    Context. Antes, o reset do ContextVar do token levantava ValueError, que
+    virava "erro" + reembolso e `RuntimeError: async generator ignored
+    GeneratorExit`, e o stream do grafo ficava com tarefas órfãs."""
+    import asyncio
+    import contextvars
+
+    pytest.importorskip("langgraph")
+    from src.agents.graph import EcoGraphRuntime
+    from src.api.schemas.chat import ChatRequest
+    from src.integrations.mcp.client import CalendarMcpClient
+    from src.services.chat_service import ChatService
+    from src.services.quota_service import QuotaService
+    from src.services.rag_service import RAGService
+    from src.services.session_service import SessionService
+    from src.shared.context import UserContext
+
+    settings = Settings.from_env().with_overrides(
+        environment="test",
+        llm_provider="mock",
+        embedding_provider="mock",
+        storage_mode="memory",
+        enable_external_source=False,
+        postgres_url=None,
+        rate_limit_per_minute=100,
+    )
+
+    class _Stub:
+        client = None
+
+    sessions = SessionService(settings, _Stub(), _Stub())  # type: ignore[arg-type]
+    rag = RAGService(settings)
+    await rag.start()
+    quotas = QuotaService(settings)
+    service = ChatService(sessions, EcoGraphRuntime(settings, sessions, rag, CalendarMcpClient(None, settings)), quotas=quotas)
+    user = UserContext(user_id=7, perfil="USUARIO_COMUM", condominio_id=None, token="tok")
+    request = ChatRequest(mensagem="Oi")
+    session, quota_status = await service.admit(request, user)
+
+    gen = service.stream(request, request_id="r", user_context=user, session=session, quota_status=quota_status)
+    events = []
+    async for event, _ in gen:
+        events.append(event)
+        if event == "progress":
+            break
+    assert len(sessions.locks.local) == 1
+
+    task = contextvars.Context().run(asyncio.get_running_loop().create_task, gen.aclose())
+    await task  # não levanta RuntimeError
+    assert len(sessions.locks.local) == 0
+    # A pergunta foi processada até onde o cliente ficou: a cota não é devolvida
+    # só porque ele fechou a conexão (senão abrir e fechar o stream seria grátis).
+    assert (await quotas.status(user)).used == 1
+    await asyncio.sleep(0.05)  # finalizadores de async generators rodam no loop
+    pendentes = [t for t in asyncio.all_tasks() if t is not asyncio.current_task() and not t.done()]
+    assert pendentes == []
