@@ -90,7 +90,7 @@ Antes de começar, verifique se você tem:
 Clone o repositório:
 
 ```bash
-git clone https://github.com/EcoCiente-Instituto-J-F/Eko.git
+git clone https://github.com/EcoCiente-Instituto-J-F/ia-eko.git
 cd Eko
 ```
 
