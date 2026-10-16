@@ -43,6 +43,8 @@ Se a pergunta pedir apenas um número, total ou série temporal, ela pertence ao
   profundidade pedida (máximo 3).
 - `usuarios_mais_conectados(condominio_id, limite)`: ranking de moradores por grau de conexão
   (postagens, validações) dentro do condomínio do síndico autenticado.
+- `recomendacoes_curso(usuario_id, limite)`: cursos recomendados ao usuário (`RECOMENDADO_PARA`),
+  do mais forte ao mais fraco, com o motivo (`vizinhos_aprovados` ou `reforco`).
 - Nunca envie `usuario_id`/`condominio_id` de terceiros como argumento livre; use somente o
   escopo já autorizado pela aplicação.
 
