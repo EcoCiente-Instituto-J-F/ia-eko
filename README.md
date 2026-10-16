@@ -133,7 +133,8 @@ No Windows: `copy .env.example .env`.
 | Variável | Padrão | Descrição |
 | --- | --- | --- |
 | `APP_ENV` | `development` | `development`, `test` ou `production` |
-| `LLM_PROVIDER` | `ollama` | `ollama`, `groq`, `gemini` ou `mock` (sem custo de API, usado nos testes) |
+| `LLM_PROVIDER` | `ollama` | `ollama`, `groq`, `gemini`, `deepseek` ou `mock` (sem custo de API, usado nos testes) |
+| `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | — / `deepseek-chat` | DeepSeek (API paga); exige `requirements-optional.txt` |
 | `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | `http://localhost:11434` / `qwen3:4b` | LLM local via Ollama |
 | `POSTGRES_URL` | — | Fonte de verdade dos dados analíticos (somente leitura pelo agente) |
 | `MONGODB_URI` / `MONGODB_DATABASE` | `mongodb://localhost:27017` / `ecociente` | Memória conversacional das sessões |
