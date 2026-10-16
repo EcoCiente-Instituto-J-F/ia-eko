@@ -50,8 +50,22 @@ def build_chat_model(settings: Settings) -> Any | None:
             model=settings.gemini_model,
             temperature=0.1,
         )
+    if provider == "deepseek":
+        if not settings.deepseek_api_key:
+            raise ProviderConfigurationError("DEEPSEEK_API_KEY é obrigatória quando LLM_PROVIDER=deepseek.")
+        try:
+            from langchain_deepseek import ChatDeepSeek
+        except ImportError as exc:
+            raise ProviderConfigurationError(
+                "Instale requirements-optional.txt para usar DeepSeek."
+            ) from exc
+        return ChatDeepSeek(
+            api_key=settings.deepseek_api_key,
+            model=settings.deepseek_model,
+            temperature=0.1,
+        )
     raise ProviderConfigurationError(
-        f"LLM_PROVIDER={provider!r} inválido. Use ollama, mock, groq ou gemini."
+        f"LLM_PROVIDER={provider!r} inválido. Use ollama, mock, groq, gemini ou deepseek."
     )
 
 

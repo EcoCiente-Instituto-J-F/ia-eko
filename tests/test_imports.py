@@ -21,7 +21,7 @@ MODULES = sorted(
     if "__pycache__" not in path.parts and path.name != "__init__.py"
 )
 # Dependências opcionais (requirements-optional.txt).
-OPTIONAL = {"langchain_groq", "langchain_google_genai", "langfuse", "qdrant_client", "fastembed"}
+OPTIONAL = {"langchain_groq", "langchain_google_genai", "langchain_deepseek", "langfuse", "qdrant_client", "fastembed"}
 
 
 @pytest.mark.parametrize("module", MODULES)
@@ -62,6 +62,20 @@ def test_agent_suite_builds_with_a_real_provider(monkeypatch) -> None:
     )
     suite = AgentSuite(settings)
     assert set(suite.agents) == {"juiz_entrada", "orquestrador", "faq", "analytics", "educacional", "grafo", "juiz_saida"}
+
+
+def test_deepseek_provider_requires_key_and_builds_without_network() -> None:
+    from src.core.config import Settings
+    from src.core.llm import ProviderConfigurationError, build_chat_model
+
+    settings = Settings.from_env().with_overrides(llm_provider="deepseek", deepseek_api_key=None)
+    with pytest.raises(ProviderConfigurationError):
+        build_chat_model(settings)
+
+    pytest.importorskip("langchain_deepseek")
+    model = build_chat_model(settings.with_overrides(deepseek_api_key="sk-test", deepseek_model="deepseek-chat"))
+    assert type(model).__name__ == "ChatDeepSeek"
+    assert model.model_name == "deepseek-chat"
 
 
 def test_current_date_goes_in_every_real_call_not_in_the_frozen_system_prompt() -> None:
