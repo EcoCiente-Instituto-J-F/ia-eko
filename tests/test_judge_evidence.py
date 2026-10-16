@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from src.agents.factory import EVIDENCE_MAX_CHARS, tool_evidence
+from src.agents.factory import EVIDENCE_MAX_CHARS, EVIDENCE_TRUNCATION_MARKER, tool_evidence
 
 
 def test_tool_evidence_keeps_only_tool_messages():
@@ -22,7 +22,14 @@ def test_tool_evidence_keeps_only_tool_messages():
 
 def test_tool_evidence_is_capped():
     messages = [SimpleNamespace(type="tool", name="t", content="x" * (EVIDENCE_MAX_CHARS * 2))]
-    assert len(tool_evidence(messages)) == EVIDENCE_MAX_CHARS
+    evidence = tool_evidence(messages)
+    assert len(evidence) == EVIDENCE_MAX_CHARS
+    assert evidence.endswith(EVIDENCE_TRUNCATION_MARKER)
+
+
+def test_tool_evidence_short_output_has_no_marker():
+    messages = [SimpleNamespace(type="tool", name="t", content="curto")]
+    assert EVIDENCE_TRUNCATION_MARKER not in tool_evidence(messages)
 
 
 def test_tool_evidence_empty_without_tools():
@@ -61,6 +68,8 @@ def test_judge_receives_rag_context_as_evidence(client):
     assert '"rascunho_texto": "Separe o vidro."' in judge_prompt
     assert '"evidencias": "[Fonte: FAQ EcoCiente' in judge_prompt
     assert "ESPECIALISTA_JSON=" not in judge_prompt
+    assert '"pergunta": "Como separar resíduos recicláveis?"' in judge_prompt
+    assert judge_prompt.startswith("ENTRADA_JSON=")
 
 
 def test_judge_receives_analytics_tool_output_as_evidence(client):
@@ -146,3 +155,36 @@ def test_judge_few_shots_follow_the_evidence_contract():
     assert '"evidencias":""' in JUIZ_SAIDA_PROMPT_COMPLETO
     assert "20% acima" not in JUIZ_SAIDA_PROMPT_COMPLETO
     assert "dados_metrificados" not in JUIZ_SAIDA_PROMPT_COMPLETO
+
+
+def test_judge_prompt_covers_question_generic_guidance_and_truncation():
+    from src.prompts.shared.judges import JUIZ_SAIDA_PROMPT_COMPLETO
+
+    for trecho in (
+        "Orientação genérica de boa prática",
+        "na pergunta, no rascunho",
+        "`ENTRADA_JSON`",
+        "[...evidência truncada]",
+    ):
+        assert trecho in JUIZ_SAIDA_PROMPT_COMPLETO
+
+
+def test_judge_receives_grafo_tool_output_as_evidence(client):
+    seen: dict[str, list[str]] = {}
+    agents = client.app.state.graph.agents
+    agents.invoke = _recording(
+        {
+            "juiz_entrada": '{"status": "aprovado"}',
+            "orquestrador": '{"route": "grafo"}',
+            "juiz_saida": '{"status": "aprovado"}',
+        },
+        seen,
+    )
+
+    async def invoke_with_tools(agent_name: str, prompt: str) -> tuple[str, str]:
+        return "Você está a 2 conexões do síndico.", "[caminho_relacionamento]\ndistancia=2"
+
+    agents.invoke_with_tools = invoke_with_tools
+    response = _post(client, "Qual a conexão entre mim e o síndico?")
+    assert response.status_code == 200
+    assert "distancia=2" in seen["juiz_saida"][-1]
