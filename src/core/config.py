@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -141,6 +142,19 @@ class Settings:
     # Anti-rajada: requisições por minuto por usuário, qualquer perfil.
     rate_limit_per_minute: int = 10
 
+    # Custo / ROI (src/observability/cost.py). Valores monetários em R$, sempre
+    # vindos do ambiente: 0 = sem custo de API (Ollama). Nada aqui é preço de
+    # provedor; quem usa Groq/Gemini/DeepSeek informa o preço vigente.
+    llm_price_input_per_1m_brl: float = 0.0
+    llm_price_output_per_1m_brl: float = 0.0
+    # Premissa de uso para projetar os cenários (solicitações por usuário/semana).
+    cost_requests_per_user_week: float = 5.0
+    # Infra não é linear: um valor por cenário, informado pelo grupo.
+    cost_infra_weekly_brl_100: float = 0.0
+    cost_infra_weekly_brl_1000: float = 0.0
+    # Benefício de uma resolução (ex.: custo evitado de atendimento humano).
+    cost_benefit_per_resolution_brl: float = 0.0
+
     # Lock da sessão entre réplicas (Redis SET NX PX). O TTL é renovado
     # enquanto a resposta é gerada; se o pod morrer, a sessão é liberada
     # em até SESSION_LOCK_TTL_SECONDS. WAIT = quanto uma segunda mensagem da
@@ -164,6 +178,17 @@ class Settings:
             raise ValueError("MEMORY_KEEP_RECENT_MESSAGES deve ser maior que zero.")
         if self.memory_keep_recent_messages >= self.memory_max_messages:
             raise ValueError("MEMORY_KEEP_RECENT_MESSAGES deve ser menor que MEMORY_MAX_MESSAGES.")
+        for name in (
+            "llm_price_input_per_1m_brl",
+            "llm_price_output_per_1m_brl",
+            "cost_requests_per_user_week",
+            "cost_infra_weekly_brl_100",
+            "cost_infra_weekly_brl_1000",
+            "cost_benefit_per_resolution_brl",
+        ):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name.upper()} deve ser finito e não negativo.")
         if self.calendar_test_bearer_token and self.environment != "test":
             raise ValueError("CALENDAR_TEST_BEARER_TOKEN só pode ser usado com APP_ENV=test.")
         if self.run_calendar_integration_tests and self.environment != "test":
@@ -255,6 +280,12 @@ class Settings:
             quota_sindico_comercial=_int("QUOTA_SINDICO_COMERCIAL", 100),
             quota_no_compaction_profiles=_get("QUOTA_NO_COMPACTION_PROFILES", "USUARIO_COMUM") or "",
             rate_limit_per_minute=_int("RATE_LIMIT_PER_MINUTE", 10),
+            llm_price_input_per_1m_brl=_float("LLM_PRICE_INPUT_PER_1M_BRL", 0.0),
+            llm_price_output_per_1m_brl=_float("LLM_PRICE_OUTPUT_PER_1M_BRL", 0.0),
+            cost_requests_per_user_week=_float("COST_REQUESTS_PER_USER_WEEK", 5.0),
+            cost_infra_weekly_brl_100=_float("COST_INFRA_WEEKLY_BRL_100", 0.0),
+            cost_infra_weekly_brl_1000=_float("COST_INFRA_WEEKLY_BRL_1000", 0.0),
+            cost_benefit_per_resolution_brl=_float("COST_BENEFIT_PER_RESOLUTION_BRL", 0.0),
             session_lock_ttl_seconds=_float("SESSION_LOCK_TTL_SECONDS", 30.0),
             session_lock_wait_seconds=_float("SESSION_LOCK_WAIT_SECONDS", 45.0),
             run_integration_tests=_bool("RUN_INTEGRATION_TESTS", False),
