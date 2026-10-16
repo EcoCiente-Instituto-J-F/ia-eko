@@ -164,8 +164,39 @@ async def usuarios_mais_conectados(condominio_id: int, limite: int = 10) -> dict
     }
 
 
+class RecomendacoesCursoArgs(BaseModel):
+    usuario_id: int = Field(gt=0)
+    limite: int = Field(default=5, ge=1, le=20)
+
+
+@tool("recomendacoes_curso", args_schema=RecomendacoesCursoArgs)
+async def recomendacoes_curso(usuario_id: int, limite: int = 5) -> dict[str, Any]:
+    """Cursos recomendados ao usuário (arestas RECOMENDADO_PARA calculadas pelo ETL), do mais forte ao mais fraco."""
+    # ponytail: lê as arestas já calculadas pelo ETL (full); sem recálculo em tempo de consulta.
+    # ponytail: usuario_id vem do LLM como os demais tools; escopar ao usuário autenticado (injetar do state) quando o agente expuser o contexto aos tools
+    query = """
+    MATCH (c:Curso)-[r:RECOMENDADO_PARA]->(u:Usuario {id: $usuario_id})
+    RETURN c.id AS curso_id, c.titulo AS titulo, r.motivo AS motivo, r.score AS score
+    ORDER BY score DESC
+    LIMIT $limite
+    """
+    try:
+        rows = await neo4j_db.execute(query, {"usuario_id": usuario_id, "limite": limite})
+    except (RuntimeError, Neo4jError) as exc:
+        return _grafo_failure(exc)
+
+    return {
+        "status": "ok",
+        "usuario_id": usuario_id,
+        "recomendacoes": [
+            {"curso_id": r["curso_id"], "titulo": r["titulo"], "motivo": r["motivo"], "score": r["score"]} for r in rows
+        ],
+    }
+
+
 TOOLS = [
     caminho_relacionamento,
     conexoes_diretas,
     usuarios_mais_conectados,
+    recomendacoes_curso,
 ]
