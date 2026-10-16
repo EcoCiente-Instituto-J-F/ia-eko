@@ -7,8 +7,8 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
 ![MongoDB](https://img.shields.io/badge/MongoDB-async-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![GitHub repo size](https://img.shields.io/github/repo-size/EcoCiente-Instituto-J-F/Eko?style=for-the-badge)
-![GitHub last commit](https://img.shields.io/github/last-commit/EcoCiente-Instituto-J-F/Eko?style=for-the-badge)
+![GitHub repo size](https://img.shields.io/github/repo-size/EcoCiente-Instituto-J-F/ia-eko?style=for-the-badge)
+![GitHub last commit](https://img.shields.io/github/last-commit/EcoCiente-Instituto-J-F/ia-eko?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)
 
 > API multiagente do EcoCiente: FastAPI + LangChain/LangGraph orquestrando especialistas (FAQ, educação ambiental, coletas, analytics e grafo de relacionamentos) com RAG, memória conversacional persistente, guardrails de entrada/saída e integrações MCP/A2A.
@@ -90,8 +90,8 @@ Antes de começar, verifique se você tem:
 Clone o repositório:
 
 ```bash
-git clone https://github.com/EcoCiente-Instituto-J-F/Eko.git
-cd Eko
+git clone https://github.com/EcoCiente-Instituto-J-F/ia-eko.git
+cd ia-eko
 ```
 
 Crie e ative o ambiente virtual:
@@ -269,7 +269,7 @@ por `mask_pii` (CPF, CNPJ, e-mail, telefone, CEP, JWT e chaves como `token`/`sen
 Com `FAQ_BACKEND=qdrant`, o especialista `faq` não chama LLM:
 
 1. A pergunta vira embedding localmente (`fastembed`, `intfloat/multilingual-e5-large`,
-   prefixo `query: `). Nenhuma chamada de API é feita nessa etapa.
+   prefixo `query:`). Nenhuma chamada de API é feita nessa etapa.
 2. A coleção `QDRANT_COLLECTION` é consultada. O payload de cada ponto tem `faq_id`, `titulo`,
    `intencao`, `perfis_relacionados`, `resposta_canonica`, `palavras_chave` e `tipo`.
 3. O resultado usado é o primeiro que tiver score acima de `QDRANT_MIN_SCORE` e cujos
@@ -439,7 +439,7 @@ palavras-chave acerta ~57% — é só para validar o harness, não uma referênc
 ## Estrutura do projeto
 
 ```
-Eko/
+ia-eko/
 ├── src/
 │   ├── api/                  # rotas, schemas, dependências FastAPI
 │   ├── agents/
