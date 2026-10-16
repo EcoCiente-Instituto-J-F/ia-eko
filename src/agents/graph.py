@@ -377,6 +377,7 @@ class EcoGraphRuntime:
             # Contrato do prompt: o rascunho é julgado contra o que o especialista
             # consultou (trechos do RAG ou retorno das tools), não contra si mesmo.
             entrada = {
+                "pergunta": state["mensagem"],
                 "rascunho_texto": candidate,
                 "especialista_json": {
                     "rota": state.get("route"),
@@ -384,10 +385,7 @@ class EcoGraphRuntime:
                     "fontes": [s.model_dump() for s in state.get("sources", [])],
                 },
             }
-            prompt = (
-                f"PERGUNTA={state['mensagem']}\n"
-                f"ENTRADA_JSON={json.dumps(entrada, ensure_ascii=False, default=str)}"
-            )
+            prompt = f"ENTRADA_JSON={json.dumps(entrada, ensure_ascii=False, default=str)}"
             raw = await self.agents.invoke("juiz_saida", prompt)
             decision = self.agents.parse_judge(raw)
         category = safe_label(decision.get("categoria") or "outro")
