@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator
 
 from src.agents.graph import EcoGraphRuntime
 from src.api.schemas.chat import ChatRequest, ChatResponse, JudgeDecisionResponse, QuotaInfo, TokenUsageResponse
+from src.observability.cost import record_chat
 from src.observability.metrics import AGENTS_CALLED, TOKENS_PER_CHAT
 from src.observability.tracing import ConversationTrace, TracingService, conversation_trace
 from src.security.request_context import authenticated_request_context
@@ -105,6 +106,12 @@ class ChatService:
         AGENTS_CALLED.observe(len(agents_called))
         TOKENS_PER_CHAT.observe(trace.usage.total_tokens)
         judge = state.get("judge")
+        record_chat(
+            self.graph.settings,
+            trace.usage.input_tokens,
+            trace.usage.output_tokens,
+            resolved=bool(judge and judge.get("aprovado")),
+        )
         return ChatResponse(
             session_id=session_id,
             request_id=request_id,

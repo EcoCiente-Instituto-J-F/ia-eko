@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any
@@ -10,6 +11,23 @@ from src.core.llm import build_chat_model
 from src.observability.metrics import LLM_LATENCY, TOOL_LATENCY
 from src.observability.tracing import TracingService, record_usage
 from src.prompts.shared.temporal import linha_data_hora
+
+
+# ponytail: corte simples; uma tool que devolva mais que isto precisa de um resumo próprio.
+EVIDENCE_MAX_CHARS = 8000
+
+
+def tool_evidence(messages: list[Any]) -> str:
+    """Saídas das tools chamadas pelo agente: o que o juiz de saída usa como fato."""
+    parts = []
+    for message in messages:
+        if getattr(message, "type", None) != "tool":
+            continue
+        content = message.content
+        if not isinstance(content, str):
+            content = json.dumps(content, ensure_ascii=False, default=str)
+        parts.append(f"[{getattr(message, 'name', None) or 'tool'}]\n{content}")
+    return "\n\n".join(parts)[:EVIDENCE_MAX_CHARS]
 
 
 class AgentSuite:
@@ -54,8 +72,13 @@ class AgentSuite:
             )
 
     async def invoke(self, agent_name: str, prompt: str) -> str:
+        text, _ = await self.invoke_with_tools(agent_name, prompt)
+        return text
+
+    async def invoke_with_tools(self, agent_name: str, prompt: str) -> tuple[str, str]:
+        """Texto final do agente + saídas das tools que ele chamou (evidência)."""
         if self.settings.llm_provider == "mock":
-            return self._mock_response(agent_name, prompt)
+            return self._mock_response(agent_name, prompt), ""
         agent = self.agents[agent_name]
         started = time.perf_counter()
         config = self.tracing.run_config(agent_name)
@@ -70,9 +93,13 @@ class AgentSuite:
         )
         messages = result.get("messages", []) if isinstance(result, dict) else []
         record_usage(provider=self.settings.llm_provider, agent=agent_name, messages=messages)
+        evidence = tool_evidence(messages)
         if not messages:
-            return str(result)
-        content = messages[-1].content
+            return str(result), evidence
+        return self._message_text(messages[-1].content), evidence
+
+    @staticmethod
+    def _message_text(content: Any) -> str:
         if isinstance(content, str):
             return content
         if isinstance(content, list):
@@ -85,11 +112,11 @@ class AgentSuite:
             return "\n".join(parts)
         return str(content)
 
-    async def run_analytics(self, prompt: str) -> str:
+    async def run_analytics(self, prompt: str) -> tuple[str, str]:
         if self.settings.llm_provider == "mock":
-            return self._mock_response("analytics", prompt)
+            return self._mock_response("analytics", prompt), ""
         started = time.perf_counter()
-        result = await self.invoke("analytics", prompt)
+        result = await self.invoke_with_tools("analytics", prompt)
         TOOL_LATENCY.labels(tool="postgresql_analytics_agent").observe(time.perf_counter() - started)
         return result
 

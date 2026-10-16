@@ -175,6 +175,7 @@ A API sobe em `http://127.0.0.1:8000`. Endpoints principais:
 | `GET` | `/api/v1/rankings/moradores`, `/torres`, `/me` | Ranking de reciclagem (conforme perfil) e a posição do próprio usuário |
 | `GET` | `/health` | Healthcheck agregado (LLM, Postgres, Mongo/Redis, RAG, Neo4j, Qdrant, calendário) |
 | `GET` | `/metrics` | Métricas Prometheus |
+| `GET` | `/api/v1/costs` | Custo, custo por resolução e ROI projetados para 100 e 1000 usuários/semana |
 | `GET` | `/docs` | Swagger UI (OpenAPI) |
 
 Exemplo de chamada (em `APP_ENV=test` com `ALLOW_TEST_IDENTITY_HEADERS=true`, sem precisar de
@@ -258,6 +259,11 @@ LANGFUSE_HOST=http://localhost:3000
 Cada agente vira um span agrupado por sessão e usuário. Antes de sair da API, o conteúdo passa
 por `mask_pii` (CPF, CNPJ, e-mail, telefone, CEP, JWT e chaves como `token`/`senha`).
 `TRACING_PROVIDER=langsmith` com `LANGSMITH_API_KEY` também funciona, com o mesmo mascaramento.
+
+Custo e ROI: cada resposta do `/chat` é contada como "resolvida" quando o juiz de saída aprovou a
+resposta final (bloqueio de guardrail ou de autorização, e resposta reprovada após as correções,
+não contam). `GET /api/v1/costs` projeta custo, custo por resolução e ROI para 100 e 1000
+usuários/semana; método, fórmulas e variáveis em [`docs/SRE_E_CUSTOS.md`](docs/SRE_E_CUSTOS.md).
 
 | Ferramenta | Responde |
 | --- | --- |
