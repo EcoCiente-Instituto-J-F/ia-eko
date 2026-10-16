@@ -70,9 +70,9 @@ O projeto está em desenvolvimento ativo. Estado atual:
 - [x] Lock da sessão no Redis (`SET NX PX` + renovação): duas mensagens da mesma conversa não rodam juntas nem em réplicas diferentes
 - [x] Carga do FAQ canônico no Qdrant (`python -m src.etl.populate_qdrant`), incremental e idempotente
 - [x] ETL do grafo validado em PostgreSQL 16 real com o schema do projeto (até 1,8 mi de votos), lendo em lotes com memória constante, e comando `--validar` para conferir contra o Neo4j/Aura
-- [ ] Rodar os evals com o modelo de produção e registrar a acurácia de referência (harness pronto para o limite do Gemini free: `--rpm`)
-- [ ] Rodar `python -m src.etl.populate_graph --validar` no Aura e registrar os tempos reais
-- [ ] Tool do agente `grafo` para consultar recomendações de curso diretamente
+- [x] Rodar os evals com o modelo de produção e registrar a acurácia de referência (harness pronto para o limite do Gemini free: `--rpm`)
+- [x] Rodar `python -m src.etl.populate_graph --validar` no Aura e registrar os tempos reais
+- [x] Tool do agente `grafo` para consultar recomendações de curso diretamente
 
 ## Pré-requisitos
 
@@ -379,6 +379,8 @@ flowchart TD
     L -- reprovado, sem tentativas --> Z
     Z --> N[Resposta ao usuário]
 ```
+
+O juiz de saída recebe o rascunho junto com as evidências que o especialista realmente consultou — trechos recuperados pelo RAG ou o retorno das tools de PostgreSQL/Neo4j — e reprova ou censura o que não estiver nelas.
 
 ### Especialistas
 
