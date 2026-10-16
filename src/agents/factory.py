@@ -149,12 +149,6 @@ class AgentSuite:
         if agent_name == "juiz_entrada":
             return "STATUS=aprovado\nMENSAGEM_ORIGINAL=[mantida]"
         if agent_name == "orquestrador":
-            # Bug corrigido: a heurística verificava palavras-chave no `prompt`
-            # inteiro, que inclui CONTEXTO_IDENTIDADE (JSON com "cooperativa_id",
-            # "condominio_id" etc). Qualquer usuário sem cooperativa era roteado
-            # para "coletas" só porque a chave `cooperativa_id: null` contém a
-            # substring "cooperativa". A heurística deve olhar somente para a
-            # mensagem do usuário, nunca para o contexto de identidade.
             message_lower = self._extract_mensagem_original(prompt).lower() or lower
             if any(w in message_lower for w in ["caminho entre", "conexão entre", "conexao entre", "conectado a", "influenciam a reciclagem", "quem influencia"]):
                 route = "grafo"
