@@ -5,7 +5,7 @@ Roda cada caso de `dataset.jsonl` pelo MESMO prompt e parser da produção
 mede acurácia, precisão/recall/F1 por rota e a matriz de confusão.
 
 Uso:
-    # modelo configurado no .env (LLM_PROVIDER=ollama|groq|gemini)
+    # modelo configurado no .env (LLM_PROVIDER=ollama|groq|gemini|deepseek)
     python -m evals.routing.run
     python -m evals.routing.run --min-accuracy 0.85 --concurrency 4
     # Gemini free tier: limite de requisições por minuto
@@ -273,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         "ollama": settings.ollama_model,
         "groq": settings.groq_model,
         "gemini": settings.gemini_model,
+        "deepseek": settings.deepseek_model,
     }.get(settings.llm_provider, "heuristica-mock")
 
     cases = load_dataset(args.dataset)[: args.limit]
