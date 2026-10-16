@@ -22,6 +22,7 @@ class EcoState(TypedDict, total=False):
     answer: str
     candidate_answer: str
     sources: list[SourceResponse]
+    evidence: str
     agents_called: list[str]
     judge: dict[str, Any]
     faq_canonica: bool

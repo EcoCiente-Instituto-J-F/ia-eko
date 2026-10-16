@@ -221,6 +221,7 @@ class EcoGraphRuntime:
             **self._mark(state, name, started),
             "candidate_answer": answer,
             "sources": sources,
+            "evidence": context,
             "agent": name,
         }
 
@@ -310,11 +311,12 @@ class EcoGraphRuntime:
             f"CONTEXTO_MEMORIA=\n{self._format_memory_context(state.get('memory_context', {}))}\n"
             "Use exclusivamente ferramentas autorizadas e não invente números quando a consulta falhar."
         )
-        answer, _evidence = await self.agents.run_analytics(prompt)
+        answer, evidence = await self.agents.run_analytics(prompt)
         return {
             **self._mark(state, "analytics", started),
             "candidate_answer": answer,
             "sources": [],
+            "evidence": evidence,
             "agent": "analytics",
         }
 
@@ -331,11 +333,12 @@ class EcoGraphRuntime:
             f"CONTEXTO_MEMORIA=\n{self._format_memory_context(state.get('memory_context', {}))}\n"
             "Use exclusivamente ferramentas autorizadas e nunca invente uma conexão que a tool não confirmou."
         )
-        answer = await self.agents.invoke("grafo", prompt)
+        answer, evidence = await self.agents.invoke_with_tools("grafo", prompt)
         return {
             **self._mark(state, "grafo", started),
             "candidate_answer": answer,
             "sources": [],
+            "evidence": evidence,
             "agent": "grafo",
         }
 
@@ -371,12 +374,19 @@ class EcoGraphRuntime:
                 "resposta_censurada": None,
             }
         else:
-            source_info = [s.model_dump() for s in state.get("sources", [])]
+            # Contrato do prompt: o rascunho é julgado contra o que o especialista
+            # consultou (trechos do RAG ou retorno das tools), não contra si mesmo.
+            entrada = {
+                "rascunho_texto": candidate,
+                "especialista_json": {
+                    "rota": state.get("route"),
+                    "evidencias": state.get("evidence", ""),
+                    "fontes": [s.model_dump() for s in state.get("sources", [])],
+                },
+            }
             prompt = (
-                f"ROTA={state.get('route')}\n"
                 f"PERGUNTA={state['mensagem']}\n"
-                f"FONTES={json.dumps(source_info, ensure_ascii=False)}\n"
-                f"ESPECIALISTA_JSON={json.dumps({'resposta': candidate}, ensure_ascii=False)}"
+                f"ENTRADA_JSON={json.dumps(entrada, ensure_ascii=False, default=str)}"
             )
             raw = await self.agents.invoke("juiz_saida", prompt)
             decision = self.agents.parse_judge(raw)
@@ -396,9 +406,11 @@ class EcoGraphRuntime:
         started = time.perf_counter()
         corrections = int(state.get("corrections", 0)) + 1
         route = state.get("route", "faq")
+        evidence = state.get("evidence", "")
         reason = state.get("judge", {}).get("motivo", "fundamentação insuficiente")
         if route in {"faq", "educacional"}:
             context, sources = await self.rag.search(state["mensagem"])
+            evidence = context
             prompt = (
                 f"PERGUNTA_ORIGINAL={state['mensagem']}\nCONTEXTO_RAG:\n{context}\n"
                 f"CORRECAO_EXIGIDA={reason}\nReescreva sem inventar fatos e somente com a evidência fornecida."
@@ -420,6 +432,7 @@ class EcoGraphRuntime:
             **self._mark(state, "correcao", started),
             "candidate_answer": candidate,
             "sources": sources,
+            "evidence": evidence,
             "corrections": corrections,
         }
 
@@ -513,6 +526,7 @@ class EcoGraphRuntime:
         "candidate_answer": "",
         "answer": "",
         "sources": [],
+        "evidence": "",
         "blocked": False,
         "blocked_reason": "",
         "corrections": 0,
