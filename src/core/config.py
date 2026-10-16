@@ -46,8 +46,10 @@ class Settings:
     ollama_model: str = "qwen3:4b"
     groq_model: str = "llama-3.3-70b-versatile"
     gemini_model: str = "gemini-2.5-flash"
+    deepseek_model: str = "deepseek-chat"
     groq_api_key: str | None = None
     gemini_api_key: str | None = None
+    deepseek_api_key: str | None = None
 
     embedding_provider: str = "ollama"
     embedding_model: str = "nomic-embed-text"
@@ -183,6 +185,8 @@ class Settings:
             gemini_model=_get("GEMINI_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash",
             groq_api_key=_get("GROQ_API_KEY"),
             gemini_api_key=_get("GEMINI_API_KEY"),
+            deepseek_model=_get("DEEPSEEK_MODEL", "deepseek-chat") or "deepseek-chat",
+            deepseek_api_key=_get("DEEPSEEK_API_KEY"),
             embedding_provider=(_get("EMBEDDING_PROVIDER", "ollama") or "ollama").lower(),
             embedding_model=_get("EMBEDDING_MODEL", "nomic-embed-text") or "nomic-embed-text",
             postgres_url=_get("POSTGRES_URL"),
