@@ -2,7 +2,7 @@ import json
 from contextlib import contextmanager
 from typing import Any, AsyncIterator, Iterator
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from src.api.dependencies import UserContext, get_chat_service, get_user_context, require_same_user
@@ -49,16 +49,20 @@ def _http_errors() -> Iterator[None]:
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     payload: ChatRequest,
+    background_tasks: BackgroundTasks,
     user: UserContext = Depends(get_user_context),
     service: ChatService = Depends(get_chat_service),
 ) -> ChatResponse:
     require_same_user(payload.usuario_id, user)
     with _http_errors():
-        return await service.chat(
+        response = await service.chat(
             payload,
             request_id=current_request_id(),
             user_context=user,
         )
+    # Memória de longo prazo: depois de enviar a resposta, sem latência para o usuário.
+    background_tasks.add_task(service.remember, user.user_id, response.session_id)
+    return response
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
