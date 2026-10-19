@@ -72,6 +72,11 @@ class Settings:
     allow_storage_fallback: bool = True
     memory_max_messages: int = 20
     memory_keep_recent_messages: int = 6
+    # Memória de longo prazo por usuário (sobrevive entre conversas). Consolidada
+    # em segundo plano a cada N mensagens do usuário e ao encerrar a sessão.
+    long_term_memory_enabled: bool = True
+    long_term_memory_every_turns: int = 1
+    long_term_memory_max_chars: int = 2000
 
     neo4j_uri: str| None = None
     neo4j_username: str| None = None
@@ -178,6 +183,10 @@ class Settings:
             raise ValueError("MEMORY_KEEP_RECENT_MESSAGES deve ser maior que zero.")
         if self.memory_keep_recent_messages >= self.memory_max_messages:
             raise ValueError("MEMORY_KEEP_RECENT_MESSAGES deve ser menor que MEMORY_MAX_MESSAGES.")
+        if self.long_term_memory_every_turns < 1:
+            raise ValueError("LONG_TERM_MEMORY_EVERY_TURNS deve ser maior que zero.")
+        if self.long_term_memory_max_chars < 200:
+            raise ValueError("LONG_TERM_MEMORY_MAX_CHARS deve ser pelo menos 200.")
         for name in (
             "llm_price_input_per_1m_brl",
             "llm_price_output_per_1m_brl",
@@ -228,6 +237,9 @@ class Settings:
             allow_storage_fallback=_bool("ALLOW_STORAGE_FALLBACK", True),
             memory_max_messages=_int("MEMORY_MAX_MESSAGES", 20),
             memory_keep_recent_messages=_int("MEMORY_KEEP_RECENT_MESSAGES", 6),
+            long_term_memory_enabled=_bool("LONG_TERM_MEMORY_ENABLED", True),
+            long_term_memory_every_turns=_int("LONG_TERM_MEMORY_EVERY_TURNS", 1),
+            long_term_memory_max_chars=_int("LONG_TERM_MEMORY_MAX_CHARS", 2000),
             neo4j_uri=_get("NEO4J_URI", "bolt://localhost:7687") ,
             neo4j_username=_get("NEO4J_USERNAME", "neo4j") ,
             neo4j_password=_get("NEO4J_PASSWORD", "neo4j") ,
