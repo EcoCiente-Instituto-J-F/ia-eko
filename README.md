@@ -68,7 +68,7 @@ The project is under active development. Current state:
 - [x] Run the routing evals with the production model and record the reference accuracy
 - [x] Run `python -m src.etl.populate_graph --validar` on Aura and record real timings
 - [x] `grafo` agent tool to query course recommendations
-- [ ] Long-term memory per user (today memory lives inside a session)
+- [x] Long-term memory per user across conversations (`GET`/`DELETE /api/v1/memory`)
 - [ ] A2A client used by the agents to consult external agents
 
 ## Prerequisites
@@ -158,6 +158,7 @@ The API listens on `http://127.0.0.1:8000`. Main endpoints:
 | `GET` | `/api/v1/chat/quota` | How many answers the user still has today |
 | `GET` | `/api/v1/agents` | Lists the available specialists |
 | `POST` / `GET` / `DELETE` | `/api/v1/sessions`, `/api/v1/sessions/{session_id}` | Creates, reads and closes a conversation session |
+| `GET` / `DELETE` | `/api/v1/memory` | What the assistant remembers about the user across conversations; delete it at any time |
 | `GET` | `/api/v1/rankings/moradores`, `/torres`, `/me` | Recycling rankings (per profile) and the user's own position |
 | `GET` | `/api/v1/costs` | Cost, cost per resolution and ROI projected for 100 and 1000 weekly users |
 | `GET` | `/health` | Aggregated healthcheck (LLM, Postgres, Mongo/Redis, RAG, Neo4j, Qdrant, calendar) |
@@ -205,7 +206,7 @@ Checked before any LLM call (`src/services/quota_service.py`). When exceeded: HT
 
 | Profile | Answers/day | Note |
 | --- | --- | --- |
-| `usuario_comum` | 20 | Session ends at 10 questions, so the memory summary (an extra LLM call) never runs |
+| `usuario_comum` | 20 | Session ends at 10 questions, so the session summary never runs; the long-term memory still updates in the background after each answer |
 | `morador_residencial` | 40 | |
 | `usuario_comercial` | 50 | |
 | `cooperativa` | 80 | Operational use (collection schedule) |
