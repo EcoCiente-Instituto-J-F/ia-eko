@@ -55,6 +55,7 @@ class AgentSuite:
         from src.prompts.agents.graph_traversal import GRAFO_PROMPT_COMPLETO
         from src.prompts.shared.judges import JUIZ_ENTRADA_PROMPT_COMPLETO, JUIZ_SAIDA_PROMPT_COMPLETO
         from src.prompts.shared.orchestrator import ORQUESTRADOR_PROMPT_COMPLETO
+        from src.security.tool_scope import ToolScopeMiddleware
 
         assert self.model is not None
         definitions = {
@@ -72,6 +73,7 @@ class AgentSuite:
                 tools=tools,
                 system_prompt=system_prompt,
                 name=f"ecociente_{name}",
+                middleware=[ToolScopeMiddleware()] if tools else [],
             )
 
     async def invoke(self, agent_name: str, prompt: str) -> str:
