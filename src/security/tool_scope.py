@@ -37,6 +37,9 @@ TOOL_ACTIONS: dict[str, str] = {
     "conexoes_diretas": "grafo",
 }
 
+# Únicas tools em que usuario_id é opcional: vazio = agregado do condomínio (só quem tem analytics_macro).
+_AGREGADO_SEM_USUARIO = {"taxa_aprovacao_postagens", "listar_postagens"}
+
 
 @contextmanager
 def tool_scope(user: UserContext | None) -> Iterator[None]:
@@ -73,7 +76,7 @@ def scope_tool_args(
     if "condominio_id" in fields:
         scoped["condominio_id"] = user.condominio_id
     if "usuario_id" in fields:
-        agregado_permitido = authorize_action(user, "analytics_macro").allowed
+        agregado_permitido = tool_name in _AGREGADO_SEM_USUARIO and authorize_action(user, "analytics_macro").allowed
         if scoped.get("usuario_id") is not None or not agregado_permitido:
             scoped["usuario_id"] = user.user_id
     return scoped, ""
