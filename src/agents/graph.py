@@ -24,6 +24,7 @@ from src.observability.metrics import (
 )
 from src.observability.tracing import TracingService
 from src.security.policies import authorize_route
+from src.security.tool_scope import tool_scope
 from src.shared.context import UserContext
 from src.services.rag_service import RAGService
 from src.integrations.mcp.client import CalendarMcpClient
@@ -311,7 +312,8 @@ class EcoGraphRuntime:
             f"CONTEXTO_MEMORIA=\n{self._format_memory_context(state.get('memory_context', {}))}\n"
             "Use exclusivamente ferramentas autorizadas e não invente números quando a consulta falhar."
         )
-        answer, evidence = await self.agents.run_analytics(prompt)
+        with tool_scope(user_context):
+            answer, evidence = await self.agents.run_analytics(prompt)
         return {
             **self._mark(state, "analytics", started),
             "candidate_answer": answer,
@@ -333,7 +335,8 @@ class EcoGraphRuntime:
             f"CONTEXTO_MEMORIA=\n{self._format_memory_context(state.get('memory_context', {}))}\n"
             "Use exclusivamente ferramentas autorizadas e nunca invente uma conexão que a tool não confirmou."
         )
-        answer, evidence = await self.agents.invoke_with_tools("grafo", prompt)
+        with tool_scope(user_context):
+            answer, evidence = await self.agents.invoke_with_tools("grafo", prompt)
         return {
             **self._mark(state, "grafo", started),
             "candidate_answer": answer,
