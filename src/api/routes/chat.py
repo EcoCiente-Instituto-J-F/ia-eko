@@ -4,6 +4,7 @@ from typing import Any, AsyncIterator, Iterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 from src.api.dependencies import UserContext, get_chat_service, get_user_context, require_same_user
 from src.api.schemas.chat import ChatRequest, ChatResponse, QuotaInfo
@@ -102,6 +103,8 @@ async def chat_stream(
         events(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        # Memória de longo prazo depois que o stream terminou (igual ao /chat).
+        background=BackgroundTask(service.remember, user.user_id, session["session_id"]),
     )
 
 
