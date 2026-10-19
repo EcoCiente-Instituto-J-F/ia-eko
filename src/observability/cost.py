@@ -95,3 +95,12 @@ def record_chat(settings: Settings, input_tokens: int, output_tokens: int, resol
     LEDGER.add(cost, input_tokens, output_tokens, resolved)
     CHAT_COST_BRL.inc(cost)
     CHATS_TOTAL.labels(resolved="true" if resolved else "false").inc()
+
+
+def record_extra_cost(settings: Settings, input_tokens: int, output_tokens: int) -> None:
+    """Custo de LLM fora de uma resposta do /chat (ex.: memória de longo prazo em segundo plano)."""
+    cost = chat_cost_brl(settings, input_tokens, output_tokens)
+    LEDGER.cost_brl += cost
+    LEDGER.input_tokens += input_tokens
+    LEDGER.output_tokens += output_tokens
+    CHAT_COST_BRL.inc(cost)
