@@ -41,6 +41,7 @@ class AgentSuite:
         self.tracing = tracing or TracingService(settings)
         self.model = build_chat_model(settings)
         self.agents: dict[str, Any] = {}
+        self._agent_tools: dict[str, list[Any]] = {}
         if settings.llm_provider != "mock":
             self._build_langchain_agents()
 
@@ -49,6 +50,7 @@ class AgentSuite:
 
         from src.agents.analytics.tools import TOOLS as ANALYTICS_TOOLS
         from src.agents.graph_traversal.tools import TOOLS as GRAFO_TOOLS
+        from src.integrations.a2a.tool import build_external_agent_tool
         from src.prompts.agents.analytics import ANALYTICS_PROMPT_COMPLETO
         from src.prompts.agents.educacional import EDUCADOR_PROMPT_COMPLETO
         from src.prompts.agents.faq import FAQ_PROMPT_COMPLETO
@@ -63,11 +65,15 @@ class AgentSuite:
             "orquestrador": (ORQUESTRADOR_PROMPT_COMPLETO, []),
             "faq": (FAQ_PROMPT_COMPLETO, []),
             "analytics": (ANALYTICS_PROMPT_COMPLETO, ANALYTICS_TOOLS),
-            "educacional": (EDUCADOR_PROMPT_COMPLETO, []),
+            "educacional": (
+                EDUCADOR_PROMPT_COMPLETO,
+                [build_external_agent_tool(self.settings)] if self.settings.a2a_remote_agent_url else [],
+            ),
             "grafo": (GRAFO_PROMPT_COMPLETO, GRAFO_TOOLS),
             "juiz_saida": (JUIZ_SAIDA_PROMPT_COMPLETO, []),
         }
         for name, (system_prompt, tools) in definitions.items():
+            self._agent_tools[name] = list(tools)
             self.agents[name] = create_agent(
                 model=self.model,
                 tools=tools,
@@ -75,6 +81,9 @@ class AgentSuite:
                 name=f"ecociente_{name}",
                 middleware=[ToolScopeMiddleware()] if tools else [],
             )
+
+    def has_tools(self, agent_name: str) -> bool:
+        return bool(self._agent_tools.get(agent_name))
 
     async def invoke(self, agent_name: str, prompt: str) -> str:
         text, _ = await self.invoke_with_tools(agent_name, prompt)
