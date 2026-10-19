@@ -86,6 +86,13 @@ CHATS_TOTAL = Counter(
 )
 
 
+TOOL_SCOPE_DENIED = Counter(
+    "ecociente_tool_scope_denied_total",
+    "Chamadas de tool negadas pelo escopo do usuário (perfil sem a ação ou contexto ausente)",
+    ["tool"],
+)
+
+
 def safe_label(value: str, max_len: int = 60) -> str:
     value = (value or "unknown").strip().lower().replace(" ", "_")
     return value[:max_len] or "unknown"
