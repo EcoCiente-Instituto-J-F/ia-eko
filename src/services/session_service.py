@@ -187,19 +187,19 @@ class SessionService:
         async with self.locks.hold(session_id):
             yield
 
-    async def append_message(self, session_id: str, usuario_id: int, role: str, content: str) -> None:
+    async def append_message(self, session_id: str, usuario_id: int, role: str, content: str) -> str:
         role = role.lower().strip()
         if role not in CONVERSATION_ROLES:
             raise ValueError("A memória conversacional aceita somente roles user/assistant.")
         await self.get_session(session_id, usuario_id)
         now = _now()
-        msg = {"role": role, "content": content[:12000], "created_at": now}
+        msg = {"id": uuid.uuid4().hex, "role": role, "content": content[:12000], "created_at": now}
         if self.mode == "memory":
             doc = self._memory_sessions[session_id]
             doc["messages"].append(msg)
             doc["updated_at"] = now
             doc["expira_em"] = now + timedelta(seconds=self.settings.session_ttl_seconds)
-            return
+            return msg["id"]
         if self.db is None or self.redis is None:
             raise StorageUnavailable("Persistência de sessão não inicializada.")
         started = time.perf_counter()
@@ -212,6 +212,7 @@ class SessionService:
         )
         DB_LATENCY.labels(backend="mongodb", operation="append_message").observe(time.perf_counter() - started)
         await self.redis.set(f"session:ptr:{usuario_id}", session_id, ex=self.settings.session_ttl_seconds)
+        return msg["id"]
 
     async def get_memory_context(
         self,
@@ -416,12 +417,37 @@ class SessionService:
             DB_LATENCY.labels(backend="mongodb", operation="save_user_memory").observe(time.perf_counter() - started)
 
     async def delete_user_memory(self, usuario_id: int) -> None:
+        """Tombstone: texto vazio e revisão incrementada, para que uma consolidação
+        em andamento (com a revisão antiga) não ressuscite o que foi apagado."""
+        now = _now()
         if self.mode == "memory":
-            self._memory_users.pop(int(usuario_id), None)
+            doc = self._memory_users.get(int(usuario_id))
+            if doc:
+                doc["texto"] = ""
+                doc["updated_at"] = now
+                doc["revision"] = int(doc.get("revision", 0)) + 1
             return
         if self.db is None:
             raise StorageUnavailable("MongoDB não inicializado.")
-        await self.db.memoria_usuarios.delete_one({"usuario_id": int(usuario_id)})
+        await self.db.memoria_usuarios.update_one(
+            {"usuario_id": int(usuario_id)},
+            {"$set": {"texto": "", "updated_at": now}, "$inc": {"revision": 1}},
+        )
+
+    async def flag_message_blocked(self, session_id: str, usuario_id: int, message_id: str) -> None:
+        """Marca uma mensagem bloqueada pelo guardrail: ela nunca vira memória de longo prazo."""
+        if self.mode == "memory":
+            for message in self._memory_sessions.get(session_id, {}).get("messages", []):
+                if message.get("id") == message_id:
+                    message["bloqueada"] = True
+            return
+        if self.db is None:
+            raise StorageUnavailable("MongoDB não inicializado.")
+        await self.db.sessoes.update_one(
+            {"session_id": session_id, "usuario_id": usuario_id},
+            {"$set": {"messages.$[m].bloqueada": True}},
+            array_filters=[{"m.id": message_id}],
+        )
 
     async def mark_long_term_memory(self, session_id: str, usuario_id: int, until: datetime) -> None:
         """Registra até qual mensagem da sessão já foi consolidada na memória longa."""
