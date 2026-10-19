@@ -1,5 +1,7 @@
 # EcoCiente IA
 
+**English** · [Português (Brasil)](README.pt-BR.md)
+
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-1.2-1C3C3C?style=for-the-badge)
@@ -11,175 +13,159 @@
 ![GitHub last commit](https://img.shields.io/github/last-commit/EcoCiente-Instituto-J-F/ia-eko?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)
 
-> API multiagente do EcoCiente: FastAPI + LangChain/LangGraph orquestrando especialistas (FAQ, educação ambiental, coletas, analytics e grafo de relacionamentos) com RAG, memória conversacional persistente, guardrails de entrada/saída e integrações MCP/A2A.
+> EcoCiente's multi-agent API: FastAPI + LangChain/LangGraph orchestrating specialists (FAQ, environmental education, waste collection, analytics and a relationship graph) with RAG, persistent conversational memory, input/output guardrails, a hallucination judge and MCP/A2A integrations.
 
-## Sobre o projeto
+## About
 
-O EcoCiente é uma plataforma de gestão de reciclagem para condomínios que conecta moradores,
-síndicos e cooperativas de coleta. Este repositório é o backend de IA: um chatbot multiagente
-que responde de forma diferente conforme o perfil autenticado (`usuario_comum`,
-`sindico_residencial`, `sindico_comercial`, `morador_residencial`, `usuario_comercial`,
-`cooperativa`), cada um com seu próprio recorte de permissões.
+EcoCiente is a recycling-management platform for residential and commercial condominiums that
+connects residents, building managers (*síndicos*) and waste-picker cooperatives. This repository
+is its AI backend: a multi-agent chatbot that answers differently depending on the authenticated
+profile (`usuario_comum`, `sindico_residencial`, `sindico_comercial`, `morador_residencial`,
+`usuario_comercial`, `cooperativa`), each with its own permission scope.
 
-Uma mensagem do usuário passa por um pipeline determinístico em grafo (LangGraph): validação
-de entrada, recuperação de memória, roteamento para o especialista correto, validação de saída
-por um juiz e, se reprovada, uma rodada de correção — tudo isso instrumentado com Prometheus e
-exposto via FastAPI.
+Every user message goes through a deterministic LangGraph pipeline: input validation, memory
+retrieval, routing to the right specialist, output validation by a judge and, if rejected, one
+correction round — all instrumented with Prometheus and exposed through FastAPI.
 
-| Perfil | Pode acessar |
+| Profile | Can access |
 | --- | --- |
 | `usuario_comum` | `faq`, `educacional` |
 | `sindico_residencial` / `sindico_comercial` | `faq`, `educacional`, `analytics`, `coletas`, `grafo` |
-| `morador_residencial` | `faq`, `educacional`, `analytics` (individual), `grafo` |
-| `usuario_comercial` | `faq`, `educacional`, `analytics` (individual), `coletas` |
+| `morador_residencial` | `faq`, `educacional`, `analytics` (own data), `grafo` |
+| `usuario_comercial` | `faq`, `educacional`, `analytics` (own data), `coletas` |
 | `cooperativa` | `faq`, `coletas` |
 
-As regras completas de autorização (perfil × ação, não só perfil × agente) estão em
+The full authorization rules (profile × action, not just profile × agent) live in
 `src/security/policies.py`.
 
-### Ajustes e melhorias
+> [!NOTE]
+> The domain is Brazilian, so identifiers, prompts, API fields and most docs in `docs/` are in
+> Portuguese (`mensagem`, `condominio_id`, `síndico`…). This README translates the concepts.
 
-O projeto está em desenvolvimento ativo. Estado atual:
+### Status
 
-- [x] Pipeline LangGraph com guardrails de entrada/saída, memória e juiz de correção
-- [x] Especialistas `faq` e `educacional` via RAG (FAISS + base de conhecimento local)
-- [x] Especialista `analytics` sobre PostgreSQL (somente leitura) e ranking via Redis
-- [x] Especialista `coletas` integrado à API externa de calendário via MCP
-- [x] Especialista `grafo` sobre Neo4j para caminhos, conexões e influência entre entidades
-- [x] Memória conversacional persistida no MongoDB com compactação automática
-- [x] Autorização por perfil e por ação sensível (`src/security/policies.py`)
-- [x] Observabilidade via Prometheus (`/metrics`) e healthcheck agregado (`/health`)
-- [x] Protocolo A2A e servidor MCP para integração com outros agentes
-- [x] CI no GitHub Actions rodando a suíte `pytest`
-- [x] Endpoint `/api/v1/agents` lista o especialista `grafo`
-- [x] Import quebrado corrigido em `tests/test_external_integrations.py` (testes reescritos para a arquitetura MCP atual — `CalendarMcpClient`/`CalendarTools`)
-- [x] `load_dotenv()` isolado em `src/core/config.py` (o `qdrant_service.py` agora lê a configuração de `Settings`)
-- [x] FAQ por busca vetorial no Qdrant (`FAQ_BACKEND=qdrant`): responde com a `resposta_canonica` da coleção, sem LLM
-- [x] Pipeline de povoamento do grafo Neo4j a partir do PostgreSQL (`python -m src.etl.populate_graph`; mapeamento nó a nó/relação a relação no topo de `src/etl/populate_graph.py`)
-- [x] Licença MIT adicionada (`LICENSE`)
-- [x] Prompts dos agentes importam com LLM real (seis módulos de prompt quebravam no import por JSON dentro de f-string; só o modo `mock` funcionava)
-- [x] Juízes e orquestrador aceitam o JSON que os próprios prompts pedem (antes, com LLM real, o juiz de saída reprovava 100% das respostas e o de entrada nunca bloqueava)
-- [x] Resposta censurada pelo juiz (`aprovado_com_censura`) é a que chega ao usuário
-- [x] Cota diária de respostas por perfil, anti-rajada por minuto e sessão do `usuario_comum` encerrada antes de acionar o resumo de memória
-- [x] Tracing de LLM com Langfuse (self-hosted) ou LangSmith, com CPF/e-mail/telefone/tokens mascarados
-- [x] Prometheus + Grafana no `docker-compose.yml`, com dashboard e alertas provisionados
-- [x] Evals de roteamento (`python -m evals.routing.run`) com acurácia, F1 por rota e matriz de confusão
-- [x] Tokens por conversa e taxa de reprovação do juiz por especialista/categoria
-- [x] ETL do grafo incremental, agendado (CronJob ou loop) e com `TEM_DIFICULDADE_EM`/`RECOMENDADO_PARA`
-- [x] Endpoint SSE `/api/v1/chat/stream` com progresso do pipeline
-- [x] Lock da sessão no Redis (`SET NX PX` + renovação): duas mensagens da mesma conversa não rodam juntas nem em réplicas diferentes
-- [x] Carga do FAQ canônico no Qdrant (`python -m src.etl.populate_qdrant`), incremental e idempotente
-- [x] ETL do grafo validado em PostgreSQL 16 real com o schema do projeto (até 1,8 mi de votos), lendo em lotes com memória constante, e comando `--validar` para conferir contra o Neo4j/Aura
-- [x] Rodar os evals com o modelo de produção e registrar a acurácia de referência (harness pronto para o limite do Gemini free: `--rpm`)
-- [x] Rodar `python -m src.etl.populate_graph --validar` no Aura e registrar os tempos reais
-- [x] Tool do agente `grafo` para consultar recomendações de curso diretamente
+The project is under active development. Current state:
 
-## Pré-requisitos
+- [x] LangGraph pipeline with input/output guardrails, memory and a correction judge
+- [x] `faq` and `educacional` specialists via RAG (FAISS + local knowledge base + an external source)
+- [x] `analytics` specialist over PostgreSQL (read-only queries) and Redis rankings
+- [x] `coletas` specialist integrated with the external calendar API through MCP
+- [x] `grafo` specialist over Neo4j for paths, connections and influence between entities
+- [x] Conversational memory persisted in MongoDB with automatic summarization
+- [x] Authorization per profile and per sensitive action (`src/security/policies.py`)
+- [x] Per-user tool scope: the LLM cannot pick whose data a tool reads (`src/security/tool_scope.py`)
+- [x] Output judge checks the draft against the evidence the specialist actually retrieved (RAG chunks or tool results)
+- [x] Observability with Prometheus (`/metrics`), Grafana dashboard and aggregated healthcheck (`/health`)
+- [x] Cost, cost per resolution and ROI projected for 100 and 1000 weekly users (`GET /api/v1/costs`)
+- [x] LLM tracing with Langfuse (self-hosted) or LangSmith, with PII masked
+- [x] Daily quota per profile, per-minute rate limit and a Redis session lock across replicas
+- [x] SSE endpoint `/api/v1/chat/stream` with pipeline progress
+- [x] FAQ via vector search in Qdrant (`FAQ_BACKEND=qdrant`), answering with curated text and no LLM call
+- [x] Incremental, scheduled ETL from PostgreSQL to Neo4j, validated against PostgreSQL 16 with up to 1.8M votes
+- [x] Routing evals (`python -m evals.routing.run`) with accuracy, per-route F1 and a confusion matrix
+- [x] A2A server and MCP server for integration with other agents
+- [x] GitHub Actions CI running the `pytest` suite
+- [x] Run the routing evals with the production model and record the reference accuracy
+- [x] Run `python -m src.etl.populate_graph --validar` on Aura and record real timings
+- [x] `grafo` agent tool to query course recommendations
+- [ ] Long-term memory per user (today memory lives inside a session)
+- [ ] A2A client used by the agents to consult external agents
 
-Antes de começar, verifique se você tem:
+## Prerequisites
 
-- Python `3.11` ou superior
-- PostgreSQL `14+`, MongoDB e Redis (podem subir via Docker)
-- Neo4j `5+` (opcional — só é necessário para o especialista `grafo`; a API sobe sem ele)
-- Qdrant (opcional — só com `FAQ_BACKEND=qdrant`)
-- Ollama rodando localmente (provider padrão de LLM/embeddings) **ou** uma chave Groq/Gemini
-- Docker e Docker Compose, se for usar os bancos em contêiner
+- Python `3.11` or later
+- PostgreSQL `14+`, MongoDB and Redis (they can run in Docker)
+- Neo4j `5+` (optional — only needed by the `grafo` specialist; the API starts without it)
+- Qdrant (optional — only with `FAQ_BACKEND=qdrant`)
+- Ollama running locally (default LLM/embeddings provider) **or** a Groq/Gemini/DeepSeek key
+- Docker and Docker Compose, if you run the databases in containers
 
-## Instalando
+## Installation
 
-Clone o repositório:
+Clone the repository:
 
 ```bash
 git clone https://github.com/EcoCiente-Instituto-J-F/ia-eko.git
 cd ia-eko
 ```
 
-Crie e ative o ambiente virtual:
-
-Linux e macOS:
+Create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate      # Linux/macOS
+.venv\Scripts\activate         # Windows
 ```
 
-Windows:
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-```
-
-Instale as dependências:
+Install the dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-> Para usar Groq ou Gemini como provider de LLM, instale `requirements-optional.txt` no lugar
-> (ele já inclui o `requirements.txt` base).
+> To use Groq, Gemini or DeepSeek as the LLM provider, install `requirements-optional.txt`
+> instead (it already includes the base `requirements.txt`).
 
-Configure as variáveis de ambiente:
+Configure the environment variables:
 
 ```bash
-cp .env.example .env
+cp .env.example .env           # Windows: copy .env.example .env
 ```
 
-No Windows: `copy .env.example .env`.
-
 <details>
-<summary>Principais variáveis do <code>.env</code></summary>
+<summary>Main <code>.env</code> variables</summary>
 
-| Variável | Padrão | Descrição |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `APP_ENV` | `development` | `development`, `test` ou `production` |
-| `LLM_PROVIDER` | `ollama` | `ollama`, `groq`, `gemini`, `deepseek` ou `mock` (sem custo de API, usado nos testes) |
-| `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | — / `deepseek-chat` | DeepSeek (API paga); exige `requirements-optional.txt` |
-| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | `http://localhost:11434` / `qwen3:4b` | LLM local via Ollama |
-| `POSTGRES_URL` | — | Fonte de verdade dos dados analíticos (somente leitura pelo agente) |
-| `MONGODB_URI` / `MONGODB_DATABASE` | `mongodb://localhost:27017` / `ecociente` | Memória conversacional das sessões |
-| `REDIS_URL` | `redis://localhost:6379/0` | Ranking, ponteiro de sessão, cotas de uso e lock da sessão entre réplicas |
-| `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | `bolt://localhost:7687` / `neo4j` | Camada de relacionamentos consultada pelo especialista `grafo` (opcional) |
-| `KNOWLEDGE_BASE_PATH` | `data/FAQ_KNOWLEDGE_BASE.md` | Base RAG dos especialistas `faq` e `educacional` |
-| `CALENDAR_API_BASE_URL` | `http://localhost:9800` | API externa de coletas, consumida via MCP |
-| `JUDGE_MAX_CORRECTIONS` | `1` | Quantas vezes o juiz de saída pode pedir correção antes de desistir |
-| `MEMORY_MAX_MESSAGES` / `MEMORY_KEEP_RECENT_MESSAGES` | `20` / `6` | Quando e quanto da memória é compactada |
+| `APP_ENV` | `development` | `development`, `test` or `production` |
+| `LLM_PROVIDER` | `ollama` | `ollama`, `groq`, `gemini`, `deepseek` or `mock` (no API cost, used by the tests) |
+| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | `http://localhost:11434` / `qwen3:4b` | Local LLM via Ollama |
+| `POSTGRES_URL` | — | Source of truth for analytics data (queried read-only) |
+| `MONGODB_URI` / `MONGODB_DATABASE` | `mongodb://localhost:27017` / `ecociente` | Conversational memory of the sessions |
+| `REDIS_URL` | `redis://localhost:6379/0` | Rankings, session pointer, usage quotas and the session lock |
+| `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | `bolt://localhost:7687` / `neo4j` | Relationship layer used by the `grafo` specialist (optional) |
+| `KNOWLEDGE_BASE_PATH` | `data/FAQ_KNOWLEDGE_BASE.md` | RAG base of the `faq` and `educacional` specialists |
+| `CALENDAR_API_BASE_URL` | `http://localhost:9800` | External collection-calendar API, consumed via MCP |
+| `AUTH_API_URL` | — | External API that validates the bearer token and returns the user's claims |
+| `JUDGE_MAX_CORRECTIONS` | `1` | How many times the output judge may ask for a correction |
+| `MEMORY_MAX_MESSAGES` / `MEMORY_KEEP_RECENT_MESSAGES` | `20` / `6` | When and how much of the memory is summarized |
+| `LLM_PRICE_INPUT_PER_1M_BRL` / `LLM_PRICE_OUTPUT_PER_1M_BRL` | `0` | Provider price per 1M tokens (R$); `0` = Ollama |
 
-Veja `.env.example` para a lista completa (autenticação, testes de integração, A2A etc.).
+See `.env.example` for the full list (cost premises, tracing, integration tests, A2A…).
 
 </details>
 
 > [!NOTE]
-> O `docker-compose.yml` sobe a `api`, o Prometheus e o Grafana (e o `graph-etl` no profile
-> `etl`). Os bancos (Postgres, MongoDB, Redis, Neo4j, Qdrant) **não** estão nele: precisam estar
-> acessíveis nos endereços do `.env`. Para desenvolver sem nenhum deles, use
-> `STORAGE_MODE=memory` e `LLM_PROVIDER=mock`.
+> `docker-compose.yml` starts the `api`, Prometheus and Grafana (plus `graph-etl` under the `etl`
+> profile). The databases (Postgres, MongoDB, Redis, Neo4j, Qdrant) are **not** in it: they must
+> be reachable at the addresses in `.env`. To develop without any of them, use
+> `STORAGE_MODE=memory` and `LLM_PROVIDER=mock`.
 
-## Usando
+## Usage
 
-Com as dependências no ar e o `.env` preenchido:
+With the dependencies up and `.env` filled in:
 
 ```bash
 python -m uvicorn src.api.main:app --reload
 ```
 
-A API sobe em `http://127.0.0.1:8000`. Endpoints principais:
+The API listens on `http://127.0.0.1:8000`. Main endpoints:
 
-| Método | Rota | Descrição |
+| Method | Route | Description |
 | --- | --- | --- |
-| `POST` | `/api/v1/chat` | Envia uma mensagem e recebe a resposta do especialista roteado |
-| `POST` | `/api/v1/chat/stream` | Mesmo pipeline, com progresso por etapa via SSE (`session` → `progress` → `answer` → `done`) |
-| `GET` | `/api/v1/chat/quota` | Quantas respostas o usuário ainda tem hoje |
-| `GET` | `/api/v1/agents` | Lista os especialistas disponíveis |
-| `POST` / `GET` / `DELETE` | `/api/v1/sessions`, `/api/v1/sessions/{session_id}` | Cria, consulta e encerra uma sessão de conversa |
-| `GET` | `/api/v1/rankings/moradores`, `/torres`, `/me` | Ranking de reciclagem (conforme perfil) e a posição do próprio usuário |
-| `GET` | `/health` | Healthcheck agregado (LLM, Postgres, Mongo/Redis, RAG, Neo4j, Qdrant, calendário) |
-| `GET` | `/metrics` | Métricas Prometheus |
-| `GET` | `/api/v1/costs` | Custo, custo por resolução e ROI projetados para 100 e 1000 usuários/semana |
+| `POST` | `/api/v1/chat` | Sends a message and returns the routed specialist's answer |
+| `POST` | `/api/v1/chat/stream` | Same pipeline, with per-step progress over SSE (`session` → `progress` → `answer` → `done`) |
+| `GET` | `/api/v1/chat/quota` | How many answers the user still has today |
+| `GET` | `/api/v1/agents` | Lists the available specialists |
+| `POST` / `GET` / `DELETE` | `/api/v1/sessions`, `/api/v1/sessions/{session_id}` | Creates, reads and closes a conversation session |
+| `GET` | `/api/v1/rankings/moradores`, `/torres`, `/me` | Recycling rankings (per profile) and the user's own position |
+| `GET` | `/api/v1/costs` | Cost, cost per resolution and ROI projected for 100 and 1000 weekly users |
+| `GET` | `/health` | Aggregated healthcheck (LLM, Postgres, Mongo/Redis, RAG, Neo4j, Qdrant, calendar) |
+| `GET` | `/metrics` | Prometheus metrics |
 | `GET` | `/docs` | Swagger UI (OpenAPI) |
 
-Exemplo de chamada (em `APP_ENV=test` com `ALLOW_TEST_IDENTITY_HEADERS=true`, sem precisar de
-token real):
+Example call (with `APP_ENV=test` and `ALLOW_TEST_IDENTITY_HEADERS=true`, so no real token is
+needed):
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/chat \
@@ -194,7 +180,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/chat \
       }'
 ```
 
-Resposta (resumida):
+Response (abridged):
 
 ```json
 {
@@ -209,45 +195,44 @@ Resposta (resumida):
 }
 ```
 
-### Limites de uso
+In production `Authorization: Bearer <token>` is mandatory and the identity comes from the
+authentication API (`AUTH_API_URL`) — the `X-*` headers above only work with `APP_ENV=test`.
 
-Checados antes de qualquer chamada de LLM (`src/services/quota_service.py`). Estourou → HTTP
-`429` com `Retry-After` e `detail.codigo` = `limite_daily`, `limite_rate` ou `limite_session`.
+### Usage limits
 
-| Perfil | Respostas/dia | Observação |
+Checked before any LLM call (`src/services/quota_service.py`). When exceeded: HTTP `429` with
+`Retry-After` and `detail.codigo` = `limite_daily`, `limite_rate` or `limite_session`.
+
+| Profile | Answers/day | Note |
 | --- | --- | --- |
-| `usuario_comum` | 20 | Sessão encerrada em 10 perguntas: o resumo de memória (LLM extra) nunca é acionado |
+| `usuario_comum` | 20 | Session ends at 10 questions, so the memory summary (an extra LLM call) never runs |
 | `morador_residencial` | 40 | |
 | `usuario_comercial` | 50 | |
-| `cooperativa` | 80 | Uso operacional (agenda de coletas) |
-| `sindico_residencial` / `sindico_comercial` | 100 | Analytics e gestão do condomínio |
+| `cooperativa` | 80 | Operational use (collection schedule) |
+| `sindico_residencial` / `sindico_comercial` | 100 | Analytics and building management |
 
-Além disso, qualquer perfil tem no máximo 10 mensagens por minuto (anti-script). A cota vira à
-meia-noite de `QUOTA_TIMEZONE` e não é consumida quando a resposta falha por erro do servidor.
-Tudo configurável por variável de ambiente (`QUOTA_*`, `RATE_LIMIT_PER_MINUTE`).
+Any profile is also limited to 10 messages per minute. The quota resets at midnight in
+`QUOTA_TIMEZONE` and is not consumed when the answer fails with a server error. Everything is
+configurable (`QUOTA_*`, `RATE_LIMIT_PER_MINUTE`).
 
-Mensagens da mesma sessão são processadas uma por vez, inclusive com várias réplicas da API: o
-lock fica no Redis (`session:lock:<id>`, `SET NX PX`, renovado enquanto a resposta é gerada e
-liberado sozinho pelo TTL se o pod morrer). Uma segunda mensagem espera a primeira terminar por
-até `SESSION_LOCK_WAIT_SECONDS` (45 s); passou disso, HTTP `409` com `detail.codigo` =
-`sessao_ocupada` e a cota devolvida. Sem Redis (`STORAGE_MODE=memory`), o lock é só do processo.
+Messages of the same session are processed one at a time, even across API replicas: the lock
+lives in Redis (`session:lock:<id>`, `SET NX PX`, renewed while the answer is generated and
+released by its TTL if the pod dies). A second message waits for the first for up to
+`SESSION_LOCK_WAIT_SECONDS` (45 s); after that it gets HTTP `409` with `detail.codigo` =
+`sessao_ocupada` and the quota is refunded. Without Redis (`STORAGE_MODE=memory`) the lock is
+per process.
 
-> [!NOTE]
-> O teto de 10 perguntas por sessão do `usuario_comum` vem de `MEMORY_MAX_MESSAGES=20`: cada
-> pergunta gera 2 mensagens (usuário + assistente), e o resumo dispara quando a sessão passa de
-> 20. Só a cota diária de 20 não bastaria — 20 respostas numa sessão só seriam 40 mensagens.
-
-### Observabilidade
+### Observability
 
 ```bash
-# API + Prometheus (9090) + Grafana (3001, dashboard "EcoCiente IA" já provisionado)
+# API + Prometheus (9090) + Grafana (3001, "EcoCiente IA" dashboard provisioned)
 docker compose up -d
 
-# Langfuse self-hosted (3000), projeto e chaves de dev já criados
+# Self-hosted Langfuse (3000), with a dev project and keys pre-created
 docker compose -f docker-compose.langfuse.yml -p langfuse up -d
 ```
 
-Para ligar o tracing, no `.env`:
+To turn tracing on, in `.env`:
 
 ```env
 TRACING_PROVIDER=langfuse
@@ -256,34 +241,35 @@ LANGFUSE_SECRET_KEY=sk-lf-ecociente-local
 LANGFUSE_HOST=http://localhost:3000
 ```
 
-Cada agente vira um span agrupado por sessão e usuário. Antes de sair da API, o conteúdo passa
-por `mask_pii` (CPF, CNPJ, e-mail, telefone, CEP, JWT e chaves como `token`/`senha`).
-`TRACING_PROVIDER=langsmith` com `LANGSMITH_API_KEY` também funciona, com o mesmo mascaramento.
+Each agent becomes a span grouped by session and user. Before leaving the API, content goes
+through `mask_pii` (CPF, CNPJ, e-mail, phone, CEP, JWT and keys such as `token`/`senha`).
+`TRACING_PROVIDER=langsmith` with `LANGSMITH_API_KEY` works too, with the same masking.
 
-Custo e ROI: cada resposta do `/chat` é contada como "resolvida" quando o juiz de saída aprovou a
-resposta final (bloqueio de guardrail ou de autorização, e resposta reprovada após as correções,
-não contam). `GET /api/v1/costs` projeta custo, custo por resolução e ROI para 100 e 1000
-usuários/semana; método, fórmulas e variáveis em [`docs/SRE_E_CUSTOS.md`](docs/SRE_E_CUSTOS.md).
+Cost and ROI: a `/chat` answer counts as "resolved" when the output judge approved the final
+answer (guardrail blocks, authorization blocks and answers rejected after the corrections do not
+count). `GET /api/v1/costs` projects cost, cost per resolution and ROI for 100 and 1000 weekly
+users from the measured averages and the premises in `.env`; without data it returns `null`
+instead of made-up numbers. Method, formulas and variables in
+[`docs/SRE_E_CUSTOS.md`](docs/SRE_E_CUSTOS.md) (Portuguese).
 
-| Ferramenta | Responde |
+| Tool | Answers |
 | --- | --- |
-| Prometheus/Grafana | Quanto e quão rápido: latência por agente, taxa de reprovação do juiz, tokens/min, recusas por limite |
-| Langfuse/LangSmith | O que aconteceu nesta conversa: prompt, resposta, tokens e decisão de cada agente |
+| Prometheus/Grafana | How much and how fast: latency per agent, judge rejection rate, tokens/min, quota refusals, error rate, cost per resolution |
+| Langfuse/LangSmith | What happened in this conversation: prompt, answer, tokens and each agent's decision |
 
-### FAQ via Qdrant (sem LLM)
+### FAQ via Qdrant (no LLM)
 
-Com `FAQ_BACKEND=qdrant`, o especialista `faq` não chama LLM:
+With `FAQ_BACKEND=qdrant`, the `faq` specialist does not call an LLM:
 
-1. A pergunta vira embedding localmente (`fastembed`, `intfloat/multilingual-e5-large`,
-   prefixo `query:`). Nenhuma chamada de API é feita nessa etapa.
-2. A coleção `QDRANT_COLLECTION` é consultada. O payload de cada ponto tem `faq_id`, `titulo`,
-   `intencao`, `perfis_relacionados`, `resposta_canonica`, `palavras_chave` e `tipo`.
-3. O resultado usado é o primeiro que tiver score acima de `QDRANT_MIN_SCORE` e cujos
-   `perfis_relacionados` incluam o perfil do usuário (lista vazia vale para todos). A
-   `resposta_canonica` dele é a resposta final. Por ser texto curado, o juiz de saída também
-   não chama LLM.
-4. Se nenhum resultado passar: com `FAQ_LLM_FALLBACK=false` (padrão), a resposta diz que a base
-   não tem essa pergunta; com `true`, cai no RAG + LLM antigo.
+1. The question is embedded locally (`fastembed`, `intfloat/multilingual-e5-large`, prefix
+   `query:`). No API call is made.
+2. The `QDRANT_COLLECTION` collection is searched. Each point's payload has `faq_id`, `titulo`,
+   `intencao`, `perfis_relacionados`, `resposta_canonica`, `palavras_chave` and `tipo`.
+3. The first result with a score above `QDRANT_MIN_SCORE` whose `perfis_relacionados` include the
+   user's profile (an empty list means everyone) wins, and its `resposta_canonica` is the final
+   answer. Because it is curated text, the output judge does not call an LLM either.
+4. If nothing passes: with `FAQ_LLM_FALLBACK=false` (default) the answer says the base does not
+   cover the question; with `true` it falls back to RAG + LLM.
 
 ```env
 FAQ_BACKEND=qdrant
@@ -293,51 +279,41 @@ QDRANT_COLLECTION=faq
 QDRANT_MIN_SCORE=0.80
 ```
 
-Carga da coleção a partir da seção "Perguntas Frequentes Canônicas" de
-`data/FAQ_KNOWLEDGE_BASE.md` (64 FAQs `FAQ-NNN`):
+Load the collection from the "Perguntas Frequentes Canônicas" section of
+`data/FAQ_KNOWLEDGE_BASE.md` (64 `FAQ-NNN` entries):
 
 ```bash
-python -m src.etl.populate_qdrant --dry-run      # valida o arquivo, não toca no Qdrant
-python -m src.etl.populate_qdrant                # cria/atualiza a coleção
+python -m src.etl.populate_qdrant --dry-run      # validates the file, does not touch Qdrant
+python -m src.etl.populate_qdrant                # creates/updates the collection
 python -m src.etl.populate_qdrant --testar "como faço login?" "posso apagar minha conta?"
 ```
 
-A carga é idempotente (id do ponto derivado do `faq_id`), só gera embedding do que mudou (hash
-no payload) e remove da coleção os FAQs que saíram do arquivo. Rode de novo sempre que a base
-mudar. "Perfis relacionados" do documento viram os códigos de perfil do sistema; rótulos
-descritivos ("Todos", "perfis com mapa") deixam o FAQ aberto a todos.
+The load is idempotent (point id derived from `faq_id`), only re-embeds what changed (hash in the
+payload) and removes FAQs that left the file. Run it again whenever the base changes.
 
 > [!WARNING]
-> O modelo de embedding (`QDRANT_EMBEDDING_MODEL`, ~2,2 GB, baixado no primeiro uso) tem que ser
-> o mesmo na carga e na API. A carga grava o modelo em cada ponto e o `/health` acusa `qdrant:
-> error` se divergir; trocar de modelo exige `--recriar`. Calibre `QDRANT_MIN_SCORE` com
-> `--testar` e perguntas reais: scores do e5 costumam ficar entre 0,75 e 0,90.
+> The embedding model (`QDRANT_EMBEDDING_MODEL`, ~2.2 GB, downloaded on first use) must be the
+> same at load time and in the API. The load stores the model in every point and `/health`
+> reports `qdrant: error` if they differ; switching models requires `--recriar`. Calibrate
+> `QDRANT_MIN_SCORE` with `--testar` and real questions: e5 scores usually fall between 0.75 and
+> 0.90.
 
-O orquestrador e o juiz de entrada continuam sendo LLM: a busca vetorial substitui a geração da
-resposta do FAQ, não o roteamento.
-
-### Carga do grafo
+### Graph load
 
 ```bash
-python -m src.etl.populate_graph --mode full            # tudo
-python -m src.etl.populate_graph --mode full --prune    # tudo + remove do grafo o que não existe mais
-python -m src.etl.populate_graph --mode incremental     # só o que mudou desde a última carga
-python -m src.etl.populate_graph --validar --relatorio etl.json  # confere Postgres × grafo, com tempos
-docker compose --profile etl up -d graph-etl            # loop: incremental 15 min, full 24 h
-kubectl apply -f k8s/graph-etl-cronjobs.yaml            # CronJobs equivalentes
+python -m src.etl.populate_graph --mode full            # everything
+python -m src.etl.populate_graph --mode full --prune    # everything + remove what no longer exists
+python -m src.etl.populate_graph --mode incremental     # only what changed since the last load
+python -m src.etl.populate_graph --validar --relatorio etl.json  # checks Postgres × graph, with timings
+docker compose --profile etl up -d graph-etl            # loop: incremental every 15 min, full every 24 h
+kubectl apply -f k8s/graph-etl-cronjobs.yaml            # equivalent CronJobs
 ```
 
-O incremental usa as datas do schema e a auditoria de `tb_rel_usuarios_condominios` (todo
-UPDATE, inclusive de `trust_score`, fica registrado). `PERTENCE_A` só existe para vínculo
-aprovado e sem `data_saida`. As regras de `TEM_DIFICULDADE_EM` e `RECOMENDADO_PARA` estão no
-topo de `src/etl/populate_graph.py`.
-
-Medido em PostgreSQL 16 com o schema do projeto e 200 mil usuários, 600 mil postagens e 1,8 mi
-de votos (só a leitura e o preparo dos lotes; o tempo do Neo4j vem do `--validar`): full em
-~21 s com ~125 MB de memória; incremental com atividade de 15 min em ~1 s.
-
-Em produção, o `Authorization: Bearer <token>` é obrigatório e a identidade vem da API de
-autenticação (`AUTH_API_URL`) — os headers `X-*` acima só funcionam com `APP_ENV=test`.
+The incremental mode uses the schema's dates and the audit trail of `tb_rel_usuarios_condominios`.
+The rules for `TEM_DIFICULDADE_EM` and `RECOMENDADO_PARA` are at the top of
+`src/etl/populate_graph.py`. Measured on PostgreSQL 16 with the project schema and 200k users,
+600k posts and 1.8M votes (read and batch preparation only): full in ~21 s with ~125 MB of
+memory; incremental with 15 minutes of activity in ~1 s.
 
 ### Docker
 
@@ -348,144 +324,162 @@ docker run --env-file .env -p 8000:8000 ecociente-ia
 
 ### Kubernetes
 
-Manifests de referência em `k8s/` (namespace, ConfigMap, Secret de exemplo, Deployment, Service
-e os CronJobs da carga do grafo, com `app.kubernetes.io/name: ia-eko`). O deploy da AWS é
-mantido pela equipe de infraestrutura em
+Reference manifests in `k8s/` (namespace, ConfigMap, example Secret, Deployment, Service and the
+graph-load CronJobs, labeled `app.kubernetes.io/name: ia-eko`). The AWS deployment is maintained
+by the infrastructure team in
 [`devops-infra-ecociente`](https://github.com/EcoCiente-Instituto-J-F/devops-infra-ecociente)
 (Helm).
 
-## Como funciona
+## How it works
 
-### Pipeline de uma mensagem
+### Message pipeline
 
 ```mermaid
 flowchart TD
     A[POST /api/v1/chat] --> B[guardrail_entrada]
-    B -- bloqueado --> Z[guardrail_saida]
+    B -- blocked --> Z[guardrail_saida]
     B -- ok --> C[memoria]
-    C --> D{precisa compactar?}
-    D -- sim --> E[resumir_memoria]
-    D -- não --> F[orquestrador]
+    C --> D{summarize memory?}
+    D -- yes --> E[resumir_memoria]
+    D -- no --> F[orquestrador]
     E --> F
-    F -- autorizado --> G{roteia para}
-    F -- não autorizado --> Z
+    F -- authorized --> G{routes to}
+    F -- not authorized --> Z
     G --> H[faq / educacional<br/>RAG]
     G --> I[analytics<br/>PostgreSQL + Redis]
-    G --> J[coletas<br/>API externa via MCP]
+    G --> J[coletas<br/>external API via MCP]
     G --> K[grafo<br/>Neo4j]
     H & I & J & K --> L[juiz_saida]
-    L -- aprovado --> Z
-    L -- reprovado, tentativas restantes --> M[correcao] --> L
-    L -- reprovado, sem tentativas --> Z
-    Z --> N[Resposta ao usuário]
+    L -- approved --> Z
+    L -- rejected, retries left --> M[correcao] --> L
+    L -- rejected, no retries --> Z
+    Z --> N[Answer to the user]
 ```
 
-O juiz de saída recebe o rascunho junto com as evidências que o especialista realmente consultou — trechos recuperados pelo RAG ou o retorno das tools de PostgreSQL/Neo4j — e reprova ou censura o que não estiver nelas (exceto o FAQ canônico do Qdrant e o especialista `coletas`, que não passam pelo juiz LLM).
+The output judge receives the draft together with the evidence the specialist actually retrieved
+— RAG chunks or the PostgreSQL/Neo4j tool results — and rejects or censors whatever is not
+supported by it (except the canonical Qdrant FAQ and the `coletas` specialist, which do not go
+through the LLM judge).
 
-### Especialistas
+### Specialists
 
-| Agente | Fonte de dados | Quando responde |
+| Agent | Data source | When it answers |
 | --- | --- | --- |
-| `faq` | RAG sobre `data/FAQ_KNOWLEDGE_BASE.md`, ou Qdrant sem LLM (`FAQ_BACKEND=qdrant`) | Regras, políticas e limites do assistente |
-| `educacional` | RAG sobre a mesma base + fonte externa (SINIR) | Separação de resíduos, compostagem, sustentabilidade |
-| `analytics` | PostgreSQL (leitura) + Redis (ranking) | Pontos, desempenho, métricas e comparações — sempre que a resposta é um número ou série |
-| `coletas` | API externa de calendário via MCP | Agendamento, recorrência e confirmação de coleta |
-| `grafo` | Neo4j | Caminho, conexão ou influência entre entidades — quando a resposta é a estrutura da relação, não uma métrica |
+| `faq` | RAG over `data/FAQ_KNOWLEDGE_BASE.md`, or Qdrant without an LLM (`FAQ_BACKEND=qdrant`) | Rules, policies and the assistant's limits |
+| `educacional` | RAG over the same base + an external source (SINIR) | Waste sorting, composting, sustainability |
+| `analytics` | PostgreSQL (read) + Redis (rankings) | Points, performance, metrics and comparisons — whenever the answer is a number or a series |
+| `coletas` | External calendar API via MCP | Collection scheduling, recurrence and confirmation |
+| `grafo` | Neo4j | Path, connection or influence between entities — when the answer is the shape of a relationship, not a metric |
 
-O agente `grafo` é o mais recente: ele existe porque perguntas como *"quais moradores mais
-influenciam a reciclagem do condomínio?"* não são respondidas por uma agregação SQL — elas
-pedem a topologia da rede de relacionamentos (`Usuario`, `Condominio`, `Torre`, `Cooperativa`,
-`CategoriaResiduo`, `Curso`, `Postagem` e relações como `MORA_EM`, `PERTENCE_A`, `CRIOU`,
-`VALIDOU`, `DENUNCIOU`, `TEM_DIFICULDADE_EM` e `RECOMENDADO_PARA`). O vocabulário fica em um lugar
-só (`src/etl/graph_model.py`), usado pelo ETL e pela whitelist das tools. Veja
-`docs/REQUISITOS_E_FLUXOS.md` para o racional completo e `src/agents/graph_traversal/tools.py`
-para as queries Cypher expostas ao LLM.
+The `grafo` agent exists because questions like *"which residents most influence recycling in
+the condominium?"* are not answered by a SQL aggregate — they need the topology of the
+relationship network (`Usuario`, `Condominio`, `Torre`, `Cooperativa`, `CategoriaResiduo`,
+`Curso`, `Postagem` and relations such as `MORA_EM`, `PERTENCE_A`, `CRIOU`, `VALIDOU`,
+`DENUNCIOU`, `TEM_DIFICULDADE_EM` and `RECOMENDADO_PARA`). The vocabulary lives in one place
+(`src/etl/graph_model.py`), shared by the ETL and the tools' whitelist; the Cypher exposed to
+the LLM is in `src/agents/graph_traversal/tools.py`.
 
-### Arquitetura
+### Security
 
-- `api/` — rotas FastAPI e injeção de dependência
-- `agents/` — grafo LangGraph e os especialistas (`analytics/`, `coleta/`, `graph_traversal/`)
-- `prompts/` — todo o conteúdo de sistema dos agentes, fora da infraestrutura
-- `services/` — casos de uso reutilizáveis (sessão, ranking, RAG, health, memória)
-- `database/` — lifecycle dos clientes/pools (PostgreSQL, MongoDB, Redis, Neo4j)
-- `integrations/` — MCP, A2A, autenticação e a API externa de calendário
-- `security/` — autenticação, autorização por perfil/ação e guardrails determinísticos
+- **Authentication:** bearer token validated by the external authentication API; the `X-*` test
+  headers only work with `APP_ENV=test` and `ALLOW_TEST_IDENTITY_HEADERS=true`.
+- **Authorization:** profile × agent and profile × action rules in `src/security/policies.py`,
+  checked before routing.
+- **Tool scope:** `ToolScopeMiddleware` intercepts every tool call. `condominio_id` is always the
+  user's own and `usuario_id` is always the user's own (only a *síndico* may ask for the
+  condominium aggregate). The graph Cypher only walks nodes of the user's condominium, and
+  non-*síndico* users do not see other residents' nodes.
+- **Guardrails and judges:** deterministic checks plus an LLM input judge (prompt injection,
+  third-party data, fraud) and an LLM output judge grounded on the retrieved evidence.
+- **Privacy:** PII is masked before traces leave the API; secrets are redacted from answers.
 
-Detalhes de decisões arquiteturais em `docs/ARQUITETURA.md`.
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
-## Testes
+### Architecture
+
+- `api/` — FastAPI routes and dependency injection
+- `agents/` — the LangGraph graph and the specialists (`analytics/`, `coleta/`, `graph_traversal/`)
+- `prompts/` — all agents' system content, kept out of the infrastructure
+- `services/` — reusable use cases (session, ranking, RAG, health, memory, quotas)
+- `database/` — client/pool lifecycle (PostgreSQL, MongoDB, Redis, Neo4j)
+- `integrations/` — MCP, A2A, authentication and the external calendar API
+- `security/` — authentication, profile/action authorization, tool scope and guardrails
+- `observability/` — Prometheus metrics, middleware, tracing and cost
+
+Architecture decisions are documented in `docs/ARQUITETURA.md` (Portuguese).
+
+## Tests
 
 ```bash
-pytest
+LLM_PROVIDER=mock EMBEDDING_PROVIDER=mock STORAGE_MODE=memory ENABLE_EXTERNAL_SOURCE=false pytest
 ```
 
-A suíte roda em `LLM_PROVIDER=mock` por padrão (sem custo de API — respostas determinísticas
-simulam cada agente). Alguns testes sobem serviços reais sozinhos se os binários existirem na
-máquina e são pulados se não existirem: `redis-server` (lock da sessão entre réplicas) e
-PostgreSQL (`initdb`/`pg_ctl`, ETL do grafo sobre o schema real); `TEST_REDIS_URL` e
-`TEST_POSTGRES_URL` apontam para servidores já existentes. Os testes de integração em
-`tests/integration/` exigem `RUN_INTEGRATION_TESTS=true` com `APP_ENV=test`.
+The suite runs with `LLM_PROVIDER=mock` (no API cost — deterministic answers simulate each
+agent). Some tests start real services on their own when the binaries exist on the machine and
+are skipped otherwise: `redis-server` (session lock across replicas) and PostgreSQL
+(`initdb`/`pg_ctl`, graph ETL on the real schema); `TEST_REDIS_URL` and `TEST_POSTGRES_URL`
+point to existing servers. The integration tests in `tests/integration/` require
+`RUN_INTEGRATION_TESTS=true` with `APP_ENV=test`.
 
-### Evals de roteamento
+### Routing evals
 
-`pytest` garante que o código funciona; os evals medem se o **modelo** roteia bem. São 58
-perguntas rotuladas (`evals/routing/dataset.jsonl`, fácil/média/difícil) passadas pelo mesmo
-prompt e parser da produção:
+`pytest` makes sure the code works; the evals measure whether the **model** routes well. There
+are 58 labeled questions (`evals/routing/dataset.jsonl`, easy/medium/hard) run through the same
+prompt and parser as production:
 
 ```bash
-python -m evals.routing.run                       # usa o LLM_PROVIDER do .env
-python -m evals.routing.run --rpm 10 --concurrency 1   # Gemini free: respeita o limite por minuto
-python -m evals.routing.run --min-accuracy 0.85   # exit 1 abaixo do mínimo (para CI)
+python -m evals.routing.run                       # uses the LLM_PROVIDER from .env
+python -m evals.routing.run --rpm 10 --concurrency 1   # Gemini free tier: respects the per-minute limit
+python -m evals.routing.run --min-accuracy 0.85   # exit 1 below the threshold (for CI)
 ```
 
-Saída: acurácia, precisão/recall/F1 por rota, acurácia por dificuldade, matriz de confusão e a
-lista de erros, gravadas em `evals/reports/`. Falha de API (429, timeout) é tentada de novo com
-espera crescente e, se persistir, aparece como `erro_api` — separada de erro de roteamento;
-saída sem rota legível aparece como `saida_invalida`. Em `LLM_PROVIDER=mock` a heurística de
-palavras-chave acerta ~57% — é só para validar o harness, não uma referência de qualidade.
+Output: accuracy, per-route precision/recall/F1, accuracy per difficulty, confusion matrix and
+the list of errors, written to `evals/reports/`. API failures (429, timeout) are retried with
+backoff and, if they persist, reported as `erro_api`, separate from routing errors. With
+`LLM_PROVIDER=mock` the keyword heuristic scores ~57% — it only validates the harness.
 
-## Estrutura do projeto
+## Project structure
 
 ```
 ia-eko/
 ├── src/
-│   ├── api/                  # rotas, schemas, dependências FastAPI
+│   ├── api/                  # routes, schemas, FastAPI dependencies
 │   ├── agents/
-│   │   ├── graph.py          # StateGraph (LangGraph) — o pipeline inteiro
-│   │   ├── factory.py        # constrói os agentes LangChain / modo mock
-│   │   ├── analytics/        # tools PostgreSQL/Redis do especialista analytics
-│   │   ├── graph_traversal/  # tools Neo4j do especialista grafo
-│   │   └── coleta/           # integração MCP com a API de calendário
-│   ├── prompts/               # prompts de sistema de cada agente
-│   ├── services/               # sessão, ranking, RAG, memória, health, cotas
-│   ├── database/               # clientes/pools: postgres, mongodb, redis, neo4j
-│   ├── etl/                    # cargas PostgreSQL → Neo4j e FAQ → Qdrant, vocabulário do grafo
-│   ├── observability/          # métricas Prometheus, middleware e tracing (Langfuse/LangSmith)
-│   ├── integrations/            # MCP, A2A, auth, calendário
-│   └── security/                # autenticação, policies, guardrails
-├── evals/routing/               # dataset rotulado e avaliação do roteamento
-├── observability/               # config do Prometheus (alertas) e Grafana (dashboard)
-├── tests/                       # pytest (unitário, integration/ e fixtures/ com o seed do ETL)
-├── docs/                         # arquitetura, requisitos e referências técnicas
-├── sql/                          # schema PostgreSQL (DDL)
-├── k8s/                          # manifests Kubernetes
-├── scripts/                      # pr-bot (geração de PR) e benchmark da API
+│   │   ├── graph.py          # StateGraph (LangGraph) — the whole pipeline
+│   │   ├── factory.py        # builds the LangChain agents / mock mode
+│   │   ├── analytics/        # PostgreSQL/Redis tools of the analytics specialist
+│   │   ├── graph_traversal/  # Neo4j tools of the grafo specialist
+│   │   └── coleta/           # MCP integration with the calendar API
+│   ├── prompts/              # system prompts of each agent
+│   ├── services/             # session, ranking, RAG, memory, health, quotas
+│   ├── database/             # clients/pools: postgres, mongodb, redis, neo4j
+│   ├── etl/                  # PostgreSQL → Neo4j and FAQ → Qdrant loads, graph vocabulary
+│   ├── observability/        # Prometheus metrics, middleware, tracing, cost
+│   ├── integrations/         # MCP, A2A, auth, calendar
+│   └── security/             # authentication, policies, tool scope, guardrails
+├── evals/routing/            # labeled dataset and routing evaluation
+├── observability/            # Prometheus (alerts) and Grafana (dashboard) config
+├── tests/                    # pytest (unit, integration/ and fixtures/ with the ETL seed)
+├── docs/                     # architecture, SRE/costs and technical references (Portuguese)
+├── sql/                      # PostgreSQL schema (DDL)
+├── k8s/                      # Kubernetes manifests
+├── scripts/                  # pr-bot (PR description) and API benchmark
 ├── Dockerfile
-├── docker-compose.yml           # API + Prometheus + Grafana (+ graph-etl no profile "etl")
-├── docker-compose.langfuse.yml  # Langfuse self-hosted
+├── docker-compose.yml        # API + Prometheus + Grafana (+ graph-etl in the "etl" profile)
+├── docker-compose.langfuse.yml  # self-hosted Langfuse
 ├── requirements.txt
 └── .env.example
 ```
 
-## Colaboradores
+## Contributors
 
-Agradecemos às seguintes pessoas que contribuíram para este projeto:
+Thanks to the people who contributed to this project:
 
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/shinitihm" title="Perfil no GitHub">
-        <img src="https://github.com/shinitihm.png" width="100px;" alt="Foto de shinitihm no GitHub"/><br>
+      <a href="https://github.com/shinitihm" title="GitHub profile">
+        <img src="https://github.com/shinitihm.png" width="100px;" alt="shinitihm's GitHub photo"/><br>
         <sub>
           <b>shinitihm</b>
         </sub>
@@ -494,18 +488,12 @@ Agradecemos às seguintes pessoas que contribuíram para este projeto:
   </tr>
 </table>
 
-## Contribuindo
+## Contributing
 
-Para contribuir com o projeto, siga estas etapas:
+Contributions are welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, the test
+commands and the pull-request flow. Everyone taking part must follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
-1. Bifurque este repositório.
-2. Crie um branch: `git checkout -b <nome_branch>`.
-3. Faça suas alterações e confirme-as: `git commit -m '<mensagem_commit>'`
-4. Envie para o branch original: `git push origin <nome_branch>`
-5. Crie a solicitação de pull.
+## License
 
-Como alternativa, consulte a documentação do GitHub em [como criar uma solicitação pull](https://help.github.com/en/github/collaborating-with-issues-and-pull-requests/creating-a-pull-request).
-
-## 📝 Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
