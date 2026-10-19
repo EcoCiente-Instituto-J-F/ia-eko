@@ -9,10 +9,10 @@ router = APIRouter(prefix="/api/v1/rankings", tags=["rankings"])
 
 
 def _condominio(user: UserContext, query_value: int | None) -> int:
+    if user.condominio_id is None:
+        raise HTTPException(status_code=403, detail="Conta sem condomínio vinculado.")
     value = query_value or user.condominio_id
-    if value is None:
-        raise HTTPException(status_code=400, detail="Informe condominio_id ou o header X-Condominio-Id.")
-    if user.condominio_id is not None and value != user.condominio_id:
+    if value != user.condominio_id:
         raise HTTPException(status_code=403, detail="Acesso a outro condomínio não permitido.")
     return value
 
