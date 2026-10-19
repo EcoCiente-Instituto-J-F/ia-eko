@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import aclosing
 from typing import Any, AsyncIterator
@@ -9,10 +10,13 @@ from src.api.schemas.chat import ChatRequest, ChatResponse, JudgeDecisionRespons
 from src.observability.cost import record_chat
 from src.observability.metrics import AGENTS_CALLED, TOKENS_PER_CHAT
 from src.observability.tracing import ConversationTrace, TracingService, conversation_trace
+from src.security.guardrails import sanitize_output, validate_input
 from src.security.request_context import authenticated_request_context
 from src.services.quota_service import QuotaExceeded, QuotaService, QuotaStatus
 from src.services.session_service import SessionBusy, SessionService
 from src.shared.context import UserContext
+
+logger = logging.getLogger("ecociente.chat")
 
 # Rótulos exibidos no stream de progresso (nós internos agrupados).
 _PROGRESS_LABELS = {
@@ -141,6 +145,44 @@ class ChatService:
         session = await self.sessions.get_session(session_id, user_context.user_id)
         self.quotas.check_session(user_context, session)
 
+    async def remember(self, user_id: int, session_id: str, *, force: bool = False) -> None:
+        """Consolida na memória de longo prazo o que a sessão trouxe de novo.
+
+        Melhor esforço, depois da resposta: uma falha aqui nunca afeta o chat.
+        """
+        settings = self.graph.settings
+        if not settings.long_term_memory_enabled:
+            return
+        try:
+            session = await self.sessions.get_session(session_id, user_id)
+            desde = session.get("memoria_longa_ate")
+            novas = [
+                message
+                for message in session.get("messages", [])
+                if str(message.get("role", "")).lower() in {"user", "assistant"}
+                and (desde is None or message["created_at"] > desde)
+            ]
+            turnos = sum(1 for message in novas if str(message.get("role", "")).lower() == "user")
+            if turnos == 0 or (not force and turnos < settings.long_term_memory_every_turns):
+                return
+            # O que o guardrail bloquearia nunca vira memória permanente.
+            seguras = [
+                message
+                for message in novas
+                if str(message.get("role", "")).lower() != "user"
+                or validate_input(str(message.get("content", ""))).allowed
+            ]
+            atual = await self.sessions.get_user_memory(user_id)
+            texto = await self.graph.memory_summarizer.consolidate_user_memory(atual["texto"], seguras)
+            texto = sanitize_output(texto).strip()[: settings.long_term_memory_max_chars]
+            if not validate_input(texto).allowed:
+                logger.warning("memoria_longo_prazo_descartada", extra={"usuario_id": user_id})
+                return
+            if await self.sessions.save_user_memory(user_id, texto, expected_revision=atual["revision"]):
+                await self.sessions.mark_long_term_memory(session_id, user_id, novas[-1]["created_at"])
+        except Exception:
+            logger.warning("memoria_longo_prazo_falhou", exc_info=True, extra={"usuario_id": user_id})
+
     # ------------------------------------------------------------------ #
     # /chat
     # ------------------------------------------------------------------ #
@@ -266,3 +308,5 @@ class ChatService:
         )
         yield "answer", {"answer": answer}
         yield "done", response.model_dump(mode="json")
+        # O cliente já recebeu tudo; a consolidação não atrasa a resposta.
+        await self.remember(user_id, session_id)
