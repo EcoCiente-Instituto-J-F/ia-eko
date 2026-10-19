@@ -69,7 +69,7 @@ The project is under active development. Current state:
 - [x] Run `python -m src.etl.populate_graph --validar` on Aura and record real timings
 - [x] `grafo` agent tool to query course recommendations
 - [x] Long-term memory per user across conversations (`GET`/`DELETE /api/v1/memory`)
-- [ ] A2A client used by the agents to consult external agents
+- [x] A2A client: the `educacional` agent consults an external agent when `A2A_REMOTE_AGENT_URL` is set
 
 ## Prerequisites
 
