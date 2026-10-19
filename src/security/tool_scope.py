@@ -35,6 +35,7 @@ TOOL_ACTIONS: dict[str, str] = {
     "usuarios_mais_conectados": "analytics_macro",
     "caminho_relacionamento": "grafo",
     "conexoes_diretas": "grafo",
+    "consultar_agente_externo": "educacional",
 }
 
 # Única tool em que usuario_id vazio vira agregado do condomínio (só quem tem analytics_macro).
