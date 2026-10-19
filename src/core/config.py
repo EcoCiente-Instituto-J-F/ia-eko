@@ -110,6 +110,9 @@ class Settings:
 
     judge_max_corrections: int = 1
     a2a_public_url: str = "http://127.0.0.1:8000/a2a/jsonrpc/"
+    # Agente externo consultado pelo especialista educacional via A2A. None = desligado.
+    a2a_remote_agent_url: str | None = None
+    a2a_remote_timeout_seconds: float = 8.0
 
     auth_api_url: str | None = None
     auth_api_timeout: float = 8.0
@@ -265,6 +268,8 @@ class Settings:
             faq_llm_fallback=_bool("FAQ_LLM_FALLBACK", False),
             judge_max_corrections=_int("JUDGE_MAX_CORRECTIONS", 1),
             a2a_public_url=_get("A2A_PUBLIC_URL", "http://127.0.0.1:8000/a2a/jsonrpc/") or "http://127.0.0.1:8000/a2a/jsonrpc/",
+            a2a_remote_agent_url=_get("A2A_REMOTE_AGENT_URL"),
+            a2a_remote_timeout_seconds=_float("A2A_REMOTE_TIMEOUT_SECONDS", 8.0),
             auth_api_url=_get("AUTH_API_URL"),
             auth_api_timeout=_float("AUTH_API_TIMEOUT", 8.0),
             auth_api_retries=_int("AUTH_API_RETRIES", 2),
