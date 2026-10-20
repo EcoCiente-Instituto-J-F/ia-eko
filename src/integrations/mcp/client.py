@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any, TypeVar
 
 from mcp import Client
@@ -57,18 +56,3 @@ class CalendarMcpClient:
             return model.model_validate(result.structured_content)
         except ValidationError as exc:
             raise McpToolProtocolError(f"Resposta estruturada inválida da tool {tool_name}.") from exc
-
-
-async def consultar_via_mcp(pergunta: str) -> object:
-    """Cliente de demonstração para a tool local de conhecimento."""
-    async with Client(mcp) as client:
-        return await client.call_tool("consultar_guia_ecociente", {"pergunta": pergunta, "limite": 3})
-
-
-async def _main() -> None:
-    result = await consultar_via_mcp("Como separar resíduos recicláveis?")
-    print(result)
-
-
-if __name__ == "__main__":
-    asyncio.run(_main())
