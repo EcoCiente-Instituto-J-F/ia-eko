@@ -5,7 +5,6 @@ from datetime import date, datetime, time, timedelta
 import re
 import unicodedata
 
-from src.agents.coleta.tools import CalendarTools
 from src.integrations.calendar.schemas import Agendamento, CalendarToolError
 from src.integrations.mcp.client import CalendarMcpClient, McpToolProtocolError
 from src.security.policies import action_for_route, authorize_action
@@ -29,7 +28,7 @@ class CollectionAgent:
     """
 
     def __init__(self, mcp_client: CalendarMcpClient):
-        self.tools = CalendarTools(mcp_client)
+        self.calendar = mcp_client
 
     async def run(self, message: str, user: UserContext) -> CollectionAgentResult:
         action = action_for_route("coletas", message)
@@ -56,7 +55,7 @@ class CollectionAgent:
 
     async def _next(self, message: str, user: UserContext, action: str) -> CollectionAgentResult:
         filters = self._filters_from_message(message, include_status=False)
-        result = await self.tools.next_collection(user, **filters)
+        result = await self.calendar.buscar_proxima(user, **filters)
         if not result.ok:
             return CollectionAgentResult(self._error_message(result.error), action)
         if not result.found or result.agendamento is None:
@@ -65,7 +64,7 @@ class CollectionAgent:
 
     async def _list(self, message: str, user: UserContext, action: str) -> CollectionAgentResult:
         filters = self._filters_from_message(message, include_status=True)
-        result = await self.tools.list_collections(user, **filters)
+        result = await self.calendar.listar_agendamentos(user, **filters)
         if not result.ok:
             return CollectionAgentResult(self._error_message(result.error), action)
         if not result.agendamentos:
@@ -164,18 +163,13 @@ class CollectionAgent:
 
     @staticmethod
     def _message_date(message: str) -> date | None:
-        match = re.search(r"\b(\d{2})/(\d{2})/(\d{4})\b", message)
-        if match:
-            try:
-                return date(int(match.group(3)), int(match.group(2)), int(match.group(1)))
-            except ValueError:
-                return None
-        match = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", message)
-        if match:
-            try:
-                return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
-            except ValueError:
-                return None
+        for pattern, fmt in ((r"\b\d{2}/\d{2}/\d{4}\b", "%d/%m/%Y"), (r"\b\d{4}-\d{2}-\d{2}\b", "%Y-%m-%d")):
+            match = re.search(pattern, message)
+            if match:
+                try:
+                    return datetime.strptime(match.group(0), fmt).date()
+                except ValueError:
+                    return None
         return None
 
     @staticmethod
