@@ -151,6 +151,7 @@ JUIZ_SAIDA_SHOTS_OPEN = (
 JUIZ_SAIDA_SHOT_1 = """
 Roteador: {"rascunho_texto":"Você teve 12 postagens aprovadas em junho, principalmente de papel.","especialista_json":{"rota":"analytics","evidencias":"[resumo_reciclagem_morador] aprovadas=12; categoria_top=papel; periodo=2026-06","fontes":[]}}
 Guardrail de Saída:
+{"status":"aprovado","resposta_final":"Você teve 12 postagens aprovadas em junho, principalmente de papel."}"""
 
 JUIZ_SAIDA_SHOT_2 = """
 Roteador: {"rascunho_texto":"O condomínio está bem, mas o apartamento 302 do morador [nome] está com a pontuação bem abaixo da média.","especialista_json":{"rota":"analytics","evidencias":"[resumo_reciclagem_condominio] taxa_aprovacao_percentual=81.5; usuarios_participantes=40","fontes":[]}}
