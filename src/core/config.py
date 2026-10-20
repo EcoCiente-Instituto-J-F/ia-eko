@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -71,6 +72,11 @@ class Settings:
     allow_storage_fallback: bool = True
     memory_max_messages: int = 20
     memory_keep_recent_messages: int = 6
+    # Memória de longo prazo por usuário (sobrevive entre conversas). Consolidada
+    # em segundo plano a cada N mensagens do usuário e ao encerrar a sessão.
+    long_term_memory_enabled: bool = True
+    long_term_memory_every_turns: int = 1
+    long_term_memory_max_chars: int = 2000
 
     neo4j_uri: str| None = None
     neo4j_username: str| None = None
@@ -104,6 +110,9 @@ class Settings:
 
     judge_max_corrections: int = 1
     a2a_public_url: str = "http://127.0.0.1:8000/a2a/jsonrpc/"
+    # Agente externo consultado pelo especialista educacional via A2A. None = desligado.
+    a2a_remote_agent_url: str | None = None
+    a2a_remote_timeout_seconds: float = 8.0
 
     auth_api_url: str | None = None
     auth_api_timeout: float = 8.0
@@ -141,6 +150,19 @@ class Settings:
     # Anti-rajada: requisições por minuto por usuário, qualquer perfil.
     rate_limit_per_minute: int = 10
 
+    # Custo / ROI (src/observability/cost.py). Valores monetários em R$, sempre
+    # vindos do ambiente: 0 = sem custo de API (Ollama). Nada aqui é preço de
+    # provedor; quem usa Groq/Gemini/DeepSeek informa o preço vigente.
+    llm_price_input_per_1m_brl: float = 0.0
+    llm_price_output_per_1m_brl: float = 0.0
+    # Premissa de uso para projetar os cenários (solicitações por usuário/semana).
+    cost_requests_per_user_week: float = 5.0
+    # Infra não é linear: um valor por cenário, informado pelo grupo.
+    cost_infra_weekly_brl_100: float = 0.0
+    cost_infra_weekly_brl_1000: float = 0.0
+    # Benefício de uma resolução (ex.: custo evitado de atendimento humano).
+    cost_benefit_per_resolution_brl: float = 0.0
+
     # Lock da sessão entre réplicas (Redis SET NX PX). O TTL é renovado
     # enquanto a resposta é gerada; se o pod morrer, a sessão é liberada
     # em até SESSION_LOCK_TTL_SECONDS. WAIT = quanto uma segunda mensagem da
@@ -164,6 +186,21 @@ class Settings:
             raise ValueError("MEMORY_KEEP_RECENT_MESSAGES deve ser maior que zero.")
         if self.memory_keep_recent_messages >= self.memory_max_messages:
             raise ValueError("MEMORY_KEEP_RECENT_MESSAGES deve ser menor que MEMORY_MAX_MESSAGES.")
+        if self.long_term_memory_every_turns < 1:
+            raise ValueError("LONG_TERM_MEMORY_EVERY_TURNS deve ser maior que zero.")
+        if self.long_term_memory_max_chars < 200:
+            raise ValueError("LONG_TERM_MEMORY_MAX_CHARS deve ser pelo menos 200.")
+        for name in (
+            "llm_price_input_per_1m_brl",
+            "llm_price_output_per_1m_brl",
+            "cost_requests_per_user_week",
+            "cost_infra_weekly_brl_100",
+            "cost_infra_weekly_brl_1000",
+            "cost_benefit_per_resolution_brl",
+        ):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name.upper()} deve ser finito e não negativo.")
         if self.calendar_test_bearer_token and self.environment != "test":
             raise ValueError("CALENDAR_TEST_BEARER_TOKEN só pode ser usado com APP_ENV=test.")
         if self.run_calendar_integration_tests and self.environment != "test":
@@ -203,6 +240,9 @@ class Settings:
             allow_storage_fallback=_bool("ALLOW_STORAGE_FALLBACK", True),
             memory_max_messages=_int("MEMORY_MAX_MESSAGES", 20),
             memory_keep_recent_messages=_int("MEMORY_KEEP_RECENT_MESSAGES", 6),
+            long_term_memory_enabled=_bool("LONG_TERM_MEMORY_ENABLED", True),
+            long_term_memory_every_turns=_int("LONG_TERM_MEMORY_EVERY_TURNS", 1),
+            long_term_memory_max_chars=_int("LONG_TERM_MEMORY_MAX_CHARS", 2000),
             neo4j_uri=_get("NEO4J_URI", "bolt://localhost:7687") ,
             neo4j_username=_get("NEO4J_USERNAME", "neo4j") ,
             neo4j_password=_get("NEO4J_PASSWORD", "neo4j") ,
@@ -228,6 +268,8 @@ class Settings:
             faq_llm_fallback=_bool("FAQ_LLM_FALLBACK", False),
             judge_max_corrections=_int("JUDGE_MAX_CORRECTIONS", 1),
             a2a_public_url=_get("A2A_PUBLIC_URL", "http://127.0.0.1:8000/a2a/jsonrpc/") or "http://127.0.0.1:8000/a2a/jsonrpc/",
+            a2a_remote_agent_url=_get("A2A_REMOTE_AGENT_URL"),
+            a2a_remote_timeout_seconds=_float("A2A_REMOTE_TIMEOUT_SECONDS", 8.0),
             auth_api_url=_get("AUTH_API_URL"),
             auth_api_timeout=_float("AUTH_API_TIMEOUT", 8.0),
             auth_api_retries=_int("AUTH_API_RETRIES", 2),
@@ -255,6 +297,12 @@ class Settings:
             quota_sindico_comercial=_int("QUOTA_SINDICO_COMERCIAL", 100),
             quota_no_compaction_profiles=_get("QUOTA_NO_COMPACTION_PROFILES", "USUARIO_COMUM") or "",
             rate_limit_per_minute=_int("RATE_LIMIT_PER_MINUTE", 10),
+            llm_price_input_per_1m_brl=_float("LLM_PRICE_INPUT_PER_1M_BRL", 0.0),
+            llm_price_output_per_1m_brl=_float("LLM_PRICE_OUTPUT_PER_1M_BRL", 0.0),
+            cost_requests_per_user_week=_float("COST_REQUESTS_PER_USER_WEEK", 5.0),
+            cost_infra_weekly_brl_100=_float("COST_INFRA_WEEKLY_BRL_100", 0.0),
+            cost_infra_weekly_brl_1000=_float("COST_INFRA_WEEKLY_BRL_1000", 0.0),
+            cost_benefit_per_resolution_brl=_float("COST_BENEFIT_PER_RESOLUTION_BRL", 0.0),
             session_lock_ttl_seconds=_float("SESSION_LOCK_TTL_SECONDS", 30.0),
             session_lock_wait_seconds=_float("SESSION_LOCK_WAIT_SECONDS", 45.0),
             run_integration_tests=_bool("RUN_INTEGRATION_TESTS", False),

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from src.api.dependencies import UserContext, get_session_service, get_user_context, require_same_user
+from src.api.dependencies import UserContext, get_chat_service, get_session_service, get_user_context, require_same_user
 from src.api.schemas.session import SessionCreateRequest, SessionResponse
+from src.services.chat_service import ChatService
 from src.services.session_service import SessionForbidden, SessionNotFound, SessionService
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
@@ -48,8 +49,11 @@ async def delete_session(
     session_id: str,
     user: UserContext = Depends(get_user_context),
     sessions: SessionService = Depends(get_session_service),
+    chat: ChatService = Depends(get_chat_service),
 ) -> Response:
     try:
+        # Encerrar a conversa consolida o que ainda não foi para a memória longa.
+        await chat.remember(user.user_id, session_id, force=True)
         await sessions.close_session(session_id, user.user_id)
     except SessionForbidden as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc

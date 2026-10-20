@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any
@@ -12,6 +13,26 @@ from src.observability.tracing import TracingService, record_usage
 from src.prompts.shared.temporal import linha_data_hora
 
 
+EVIDENCE_MAX_CHARS = 8000
+EVIDENCE_TRUNCATION_MARKER = "\n[...evidência truncada]"
+
+
+def tool_evidence(messages: list[Any]) -> str:
+    """Saídas das tools chamadas pelo agente: o que o juiz de saída usa como fato."""
+    parts = []
+    for message in messages:
+        if getattr(message, "type", None) != "tool":
+            continue
+        content = message.content
+        if not isinstance(content, str):
+            content = json.dumps(content, ensure_ascii=False, default=str)
+        parts.append(f"[{getattr(message, 'name', None) or 'tool'}]\n{content}")
+    joined = "\n\n".join(parts)
+    if len(joined) > EVIDENCE_MAX_CHARS:
+        return joined[: EVIDENCE_MAX_CHARS - len(EVIDENCE_TRUNCATION_MARKER)] + EVIDENCE_TRUNCATION_MARKER
+    return joined
+
+
 class AgentSuite:
     """Cria agentes LangChain em produção e equivalentes determinísticos no modo mock."""
 
@@ -20,6 +41,7 @@ class AgentSuite:
         self.tracing = tracing or TracingService(settings)
         self.model = build_chat_model(settings)
         self.agents: dict[str, Any] = {}
+        self._agent_tools: dict[str, list[Any]] = {}
         if settings.llm_provider != "mock":
             self._build_langchain_agents()
 
@@ -28,12 +50,14 @@ class AgentSuite:
 
         from src.agents.analytics.tools import TOOLS as ANALYTICS_TOOLS
         from src.agents.graph_traversal.tools import TOOLS as GRAFO_TOOLS
+        from src.integrations.a2a.tool import build_external_agent_tool
         from src.prompts.agents.analytics import ANALYTICS_PROMPT_COMPLETO
         from src.prompts.agents.educacional import EDUCADOR_PROMPT_COMPLETO
         from src.prompts.agents.faq import FAQ_PROMPT_COMPLETO
         from src.prompts.agents.graph_traversal import GRAFO_PROMPT_COMPLETO
         from src.prompts.shared.judges import JUIZ_ENTRADA_PROMPT_COMPLETO, JUIZ_SAIDA_PROMPT_COMPLETO
         from src.prompts.shared.orchestrator import ORQUESTRADOR_PROMPT_COMPLETO
+        from src.security.tool_scope import ToolScopeMiddleware
 
         assert self.model is not None
         definitions = {
@@ -41,21 +65,34 @@ class AgentSuite:
             "orquestrador": (ORQUESTRADOR_PROMPT_COMPLETO, []),
             "faq": (FAQ_PROMPT_COMPLETO, []),
             "analytics": (ANALYTICS_PROMPT_COMPLETO, ANALYTICS_TOOLS),
-            "educacional": (EDUCADOR_PROMPT_COMPLETO, []),
+            "educacional": (
+                EDUCADOR_PROMPT_COMPLETO,
+                [build_external_agent_tool(self.settings)] if self.settings.a2a_remote_agent_url else [],
+            ),
             "grafo": (GRAFO_PROMPT_COMPLETO, GRAFO_TOOLS),
             "juiz_saida": (JUIZ_SAIDA_PROMPT_COMPLETO, []),
         }
         for name, (system_prompt, tools) in definitions.items():
+            self._agent_tools[name] = list(tools)
             self.agents[name] = create_agent(
                 model=self.model,
                 tools=tools,
                 system_prompt=system_prompt,
                 name=f"ecociente_{name}",
+                middleware=[ToolScopeMiddleware()] if tools else [],
             )
 
+    def has_tools(self, agent_name: str) -> bool:
+        return bool(self._agent_tools.get(agent_name))
+
     async def invoke(self, agent_name: str, prompt: str) -> str:
+        text, _ = await self.invoke_with_tools(agent_name, prompt)
+        return text
+
+    async def invoke_with_tools(self, agent_name: str, prompt: str) -> tuple[str, str]:
+        """Texto final do agente + saídas das tools que ele chamou (evidência)."""
         if self.settings.llm_provider == "mock":
-            return self._mock_response(agent_name, prompt)
+            return self._mock_response(agent_name, prompt), ""
         agent = self.agents[agent_name]
         started = time.perf_counter()
         config = self.tracing.run_config(agent_name)
@@ -70,9 +107,13 @@ class AgentSuite:
         )
         messages = result.get("messages", []) if isinstance(result, dict) else []
         record_usage(provider=self.settings.llm_provider, agent=agent_name, messages=messages)
+        evidence = tool_evidence(messages)
         if not messages:
-            return str(result)
-        content = messages[-1].content
+            return str(result), evidence
+        return self._message_text(messages[-1].content), evidence
+
+    @staticmethod
+    def _message_text(content: Any) -> str:
         if isinstance(content, str):
             return content
         if isinstance(content, list):
@@ -85,11 +126,11 @@ class AgentSuite:
             return "\n".join(parts)
         return str(content)
 
-    async def run_analytics(self, prompt: str) -> str:
+    async def run_analytics(self, prompt: str) -> tuple[str, str]:
         if self.settings.llm_provider == "mock":
-            return self._mock_response("analytics", prompt)
+            return self._mock_response("analytics", prompt), ""
         started = time.perf_counter()
-        result = await self.invoke("analytics", prompt)
+        result = await self.invoke_with_tools("analytics", prompt)
         TOOL_LATENCY.labels(tool="postgresql_analytics_agent").observe(time.perf_counter() - started)
         return result
 
@@ -119,12 +160,6 @@ class AgentSuite:
         if agent_name == "juiz_entrada":
             return "STATUS=aprovado\nMENSAGEM_ORIGINAL=[mantida]"
         if agent_name == "orquestrador":
-            # Bug corrigido: a heurística verificava palavras-chave no `prompt`
-            # inteiro, que inclui CONTEXTO_IDENTIDADE (JSON com "cooperativa_id",
-            # "condominio_id" etc). Qualquer usuário sem cooperativa era roteado
-            # para "coletas" só porque a chave `cooperativa_id: null` contém a
-            # substring "cooperativa". A heurística deve olhar somente para a
-            # mensagem do usuário, nunca para o contexto de identidade.
             message_lower = self._extract_mensagem_original(prompt).lower() or lower
             if any(w in message_lower for w in ["caminho entre", "conexão entre", "conexao entre", "conectado a", "influenciam a reciclagem", "quem influencia"]):
                 route = "grafo"

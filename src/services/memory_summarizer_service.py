@@ -6,9 +6,10 @@ from typing import Any
 
 from src.core.config import Settings
 from src.core.llm import build_chat_model
+from src.observability.cost import record_extra_cost
 from src.observability.metrics import LLM_LATENCY
 from src.observability.tracing import TracingService, record_usage
-from src.prompts.shared.memory import MEMORY_SUMMARIZER_PROMPT
+from src.prompts.shared.memory import MEMORY_SUMMARIZER_PROMPT, USER_MEMORY_PROMPT
 
 
 class MemorySummarizerService:
@@ -44,7 +45,10 @@ class MemorySummarizerService:
             time.perf_counter() - started
         )
         record_usage(provider=self.settings.llm_provider, agent="memory_summarizer", messages=[result])
-        content = getattr(result, "content", result)
+        return self._content_text(getattr(result, "content", result))
+
+    @staticmethod
+    def _content_text(content: Any) -> str:
         if isinstance(content, str):
             return content.strip()
         if isinstance(content, list):
@@ -56,6 +60,45 @@ class MemorySummarizerService:
                     parts.append(str(item))
             return "\n".join(parts).strip()
         return str(content).strip()
+
+    async def consolidate_user_memory(self, current: str, messages: list[dict[str, Any]]) -> str:
+        """Memória de longo prazo do usuário atualizada com as mensagens novas."""
+        if self.settings.llm_provider == "mock":
+            return self._mock_user_memory(current, messages)
+        if self.model is None:
+            raise RuntimeError("Modelo de memória não configurado.")
+        payload = {
+            "memoria_atual": current or "",
+            "mensagens_novas": [
+                {"role": message.get("role"), "content": message.get("content", "")} for message in messages
+            ],
+        }
+        started = time.perf_counter()
+        result = await self.model.ainvoke(
+            [
+                {"role": "system", "content": USER_MEMORY_PROMPT},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            config=self.tracing.run_config("memoria_longo_prazo") or None,
+        )
+        LLM_LATENCY.labels(provider=self.settings.llm_provider, agent="memoria_longo_prazo").observe(
+            time.perf_counter() - started
+        )
+        usage = record_usage(provider=self.settings.llm_provider, agent="memoria_longo_prazo", messages=[result])
+        # Roda fora de uma resposta do /chat: o custo entra no ledger sem contar como solicitação.
+        record_extra_cost(self.settings, usage.input_tokens, usage.output_tokens)
+        return self._content_text(getattr(result, "content", result))
+
+    @staticmethod
+    def _mock_user_memory(current: str, messages: list[dict[str, Any]]) -> str:
+        lines = [line for line in (current or "").splitlines() if line.strip()]
+        for message in messages:
+            if str(message.get("role", "")).lower() != "user":
+                continue
+            content = " ".join(str(message.get("content", "")).split())
+            if content:
+                lines.append(f"- {content}")
+        return "\n".join(lines)
 
     @staticmethod
     def _mock_summary(previous_summary: str | None, messages: list[dict[str, Any]]) -> str:

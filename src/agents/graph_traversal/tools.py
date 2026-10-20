@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 from src.database.neo4j import neo4j_db
 from src.etl.graph_model import NODE_LABELS, RELATIONSHIP_TYPES
+from src.security.policies import authorize_action
+from src.security.tool_scope import current_scope
 
 logger = logging.getLogger("ecociente.grafo")
 
@@ -16,6 +18,29 @@ logger = logging.getLogger("ecociente.grafo")
 # Whitelist obrigatória: labels e tipos de relação são interpolados no Cypher.
 _LABELS_PERMITIDOS = set(NODE_LABELS)
 _RELACOES_PERMITIDAS = set(RELATIONSHIP_TYPES)
+
+_SEM_ESCOPO = {"status": "negado", "message": "Contexto de acesso ausente para consultar o grafo."}
+
+
+def _escopo_grafo() -> dict | None:
+    """Parâmetros do escopo do grafo: condomínio, usuário e se só o próprio Usuario é visível."""
+    user = current_scope()
+    if user is None or user.condominio_id is None:
+        return None
+    return {"cid": user.condominio_id, "uid": user.user_id, "so_proprio": not authorize_action(user, "analytics_macro").allowed}
+
+
+def _no_escopo(var: str, so_proprio: bool = False) -> str:
+    """Predicado Cypher: o nó pertence ao condomínio `$cid` ou é entidade global do domínio."""
+    # ponytail: EXISTS por nó dentro do shortestPath pode cair em busca exaustiva; ok no volume atual.
+    base = (
+        f"(({var}:Condominio AND {var}.id = $cid) OR {var}:CategoriaResiduo OR {var}:Curso OR {var}:Cooperativa "
+        f"OR EXISTS {{ ({var})-[:PERTENCE_A|MORA_EM|NO_CONDOMINIO]->(:Condominio {{id: $cid}}) }})"
+    )
+    if not so_proprio:
+        return base
+    # Sem analytics_macro: outro morador não aparece (nem no meio do caminho).
+    return f"({base} AND (NOT {var}:Usuario OR {var}.id = $uid))"
 
 
 def _grafo_failure(exc: Exception) -> dict[str, str]:
@@ -56,6 +81,10 @@ async def caminho_relacionamento(
     profundidade_maxima: int = 4,
 ) -> dict[str, Any]:
     """Encontra o caminho mais curto entre duas entidades já identificadas por label e id."""
+    escopo = _escopo_grafo()
+    if escopo is None:
+        return dict(_SEM_ESCOPO)
+    sp = escopo["so_proprio"]
     origem = _validar_label(label_origem)
     destino = _validar_label(label_destino)
     if origem is None or destino is None:
@@ -67,7 +96,9 @@ async def caminho_relacionamento(
     rel_pattern = f":{relacao}" if relacao else ""
     query = f"""
     MATCH (origem:{origem} {{id: $id_origem}}), (destino:{destino} {{id: $id_destino}})
+    WHERE {_no_escopo("origem", sp)} AND {_no_escopo("destino", sp)}
     MATCH caminho = shortestPath((origem)-[{rel_pattern}*1..{profundidade_maxima}]-(destino))
+    WHERE ALL(n IN nodes(caminho) WHERE {_no_escopo("n", sp)})
     RETURN [n IN nodes(caminho) | {{label: labels(n)[0], id: n.id}}] AS nos,
            [r IN relationships(caminho) | type(r)] AS relacoes,
            length(caminho) AS distancia
@@ -76,7 +107,7 @@ async def caminho_relacionamento(
     try:
         rows = await neo4j_db.execute(
             query,
-            {"id_origem": id_origem, "id_destino": id_destino},
+            {"id_origem": id_origem, "id_destino": id_destino, "cid": escopo["cid"], "uid": escopo["uid"]},
         )
     except (RuntimeError, Neo4jError) as exc:
         return _grafo_failure(exc)
@@ -108,6 +139,10 @@ async def conexoes_diretas(
     profundidade: int = 1,
 ) -> dict[str, Any]:
     """Lista as entidades conectadas a uma entidade até a profundidade pedida (máx. 3)."""
+    escopo = _escopo_grafo()
+    if escopo is None:
+        return dict(_SEM_ESCOPO)
+    sp = escopo["so_proprio"]
     rotulo = _validar_label(label)
     if rotulo is None:
         return {"status": "erro", "message": "Label de entidade não reconhecido pelo domínio do EcoCiente."}
@@ -117,12 +152,15 @@ async def conexoes_diretas(
 
     rel_pattern = f":{relacao}" if relacao else ""
     query = f"""
-    MATCH (centro:{rotulo} {{id: $id}})-[{rel_pattern}*1..{profundidade}]-(vizinho)
+    MATCH (centro:{rotulo} {{id: $id}})
+    WHERE {_no_escopo("centro", sp)}
+    MATCH p = (centro)-[{rel_pattern}*1..{profundidade}]-(vizinho)
+    WHERE ALL(x IN nodes(p) WHERE {_no_escopo("x", sp)})
     RETURN DISTINCT labels(vizinho)[0] AS label_vizinho, vizinho.id AS id_vizinho
     LIMIT 50
     """
     try:
-        rows = await neo4j_db.execute(query, {"id": id})
+        rows = await neo4j_db.execute(query, {"id": id, "cid": escopo["cid"], "uid": escopo["uid"]})
     except (RuntimeError, Neo4jError) as exc:
         return _grafo_failure(exc)
 
@@ -142,6 +180,9 @@ class UsuariosMaisConectadosArgs(BaseModel):
 @tool("usuarios_mais_conectados", args_schema=UsuariosMaisConectadosArgs)
 async def usuarios_mais_conectados(condominio_id: int, limite: int = 10) -> dict[str, Any]:
     """Ranking de moradores do condomínio por grau de conexão (postagens criadas/validadas)."""
+    escopo = _escopo_grafo()
+    if escopo is None or condominio_id != escopo["cid"]:
+        return dict(_SEM_ESCOPO)
     query = """
     MATCH (u:Usuario)-[:PERTENCE_A]->(c:Condominio {id: $condominio_id})
     MATCH (u)-[r:CRIOU|VALIDOU]-(p:Postagem)
