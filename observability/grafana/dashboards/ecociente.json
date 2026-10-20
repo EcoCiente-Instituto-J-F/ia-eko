@@ -778,6 +778,174 @@
         "overrides": []
       },
       "options": {}
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Custo estimado de API (R$/h)",
+      "description": "Tokens x preço (LLM_PRICE_*). 0 com Ollama.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ecociente-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 57,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ecociente-prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(ecociente_chat_cost_brl_total[1h]))",
+          "legendFormat": "custo"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Taxa de resolução (1h)",
+      "description": "Resolvida = resposta final aprovada pelo juiz de saída.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ecociente-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 57,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ecociente-prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(ecociente_chats_total{resolved=\"true\"}[1h])) / sum(increase(ecociente_chats_total[1h]))",
+          "legendFormat": "resolução"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Custo por resolução (R$, 1h)",
+      "description": "Só custo de API; infra entra nos cenários de /api/v1/costs.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ecociente-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 57,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ecociente-prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(increase(ecociente_chat_cost_brl_total[1h])) / sum(increase(ecociente_chats_total{resolved=\"true\"}[1h]))",
+          "legendFormat": "custo/resolução"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Índice de erros HTTP (5m)",
+      "description": "Fração das requisições HTTP com erro de servidor/exceção nos últimos 5 min (ecociente_http_request_errors_total / ecociente_http_requests_total).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ecociente-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 57,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ecociente-prometheus"
+          },
+          "refId": "A",
+          "expr": "sum(rate(ecociente_http_request_errors_total[5m])) / sum(rate(ecociente_http_requests_total[5m]))",
+          "legendFormat": "erros"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     }
   ],
   "templating": {
