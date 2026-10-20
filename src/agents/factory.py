@@ -13,8 +13,8 @@ from src.observability.tracing import TracingService, record_usage
 from src.prompts.shared.temporal import linha_data_hora
 
 
-# ponytail: corte simples; uma tool que devolva mais que isto precisa de um resumo próprio.
 EVIDENCE_MAX_CHARS = 8000
+EVIDENCE_TRUNCATION_MARKER = "\n[...evidência truncada]"
 
 
 def tool_evidence(messages: list[Any]) -> str:
@@ -27,7 +27,10 @@ def tool_evidence(messages: list[Any]) -> str:
         if not isinstance(content, str):
             content = json.dumps(content, ensure_ascii=False, default=str)
         parts.append(f"[{getattr(message, 'name', None) or 'tool'}]\n{content}")
-    return "\n\n".join(parts)[:EVIDENCE_MAX_CHARS]
+    joined = "\n\n".join(parts)
+    if len(joined) > EVIDENCE_MAX_CHARS:
+        return joined[: EVIDENCE_MAX_CHARS - len(EVIDENCE_TRUNCATION_MARKER)] + EVIDENCE_TRUNCATION_MARKER
+    return joined
 
 
 class AgentSuite:
