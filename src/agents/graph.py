@@ -220,7 +220,22 @@ class EcoGraphRuntime:
                 "Responda somente com fatos sustentados pelo CONTEXTO_RAG; se faltar evidência, declare a insuficiência. "
                 "Fatos que o usuário declarou na MEMÓRIA DE LONGO PRAZO podem ser usados só para personalizar a resposta."
             )
-            answer = await self.agents.invoke(name, prompt)
+            if self.agents.has_tools(name):
+                # Especialista com tools (ex.: agente externo via A2A) roda no escopo do usuário.
+                with tool_scope(user_context):
+                    answer, tool_output = await self.agents.invoke_with_tools(name, prompt)
+            else:
+                answer, tool_output = await self.agents.invoke(name, prompt), ""
+            if tool_output:
+                context = f"{context}\n\n{tool_output}"
+                if "[consultar_agente_externo]" in tool_output and '"status": "ok"' in tool_output:
+                    sources = [
+                        *sources,
+                        SourceResponse(
+                            title="Agente externo (A2A)",
+                            source=f"a2a:{self.settings.a2a_remote_agent_url}",
+                        ),
+                    ]
         return {
             **self._mark(state, name, started),
             "candidate_answer": answer,
@@ -420,6 +435,7 @@ class EcoGraphRuntime:
                 f"PERGUNTA_ORIGINAL={state['mensagem']}\nCONTEXTO_RAG:\n{context}\n"
                 f"CORRECAO_EXIGIDA={reason}\nReescreva sem inventar fatos e somente com a evidência fornecida."
             )
+            # Retry julgado só contra o RAG: a tool A2A não é usada aqui (seria negada fora do tool_scope); evidência e fonte externas caem de propósito.
             candidate = await self.agents.invoke(route, prompt) if context else "A base consultada não contém evidência suficiente para responder com segurança."
         elif route == "grafo":
             sources = state.get("sources", [])
