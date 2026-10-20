@@ -75,6 +75,15 @@ ROUTING_DECISIONS = Counter(
     "Rotas escolhidas pelo orquestrador",
     ["route"],
 )
+CHAT_COST_BRL = Counter(
+    "ecociente_chat_cost_brl_total",
+    "Custo estimado de API de IA das respostas do /chat, em R$ (preços vindos do ambiente)",
+)
+CHATS_TOTAL = Counter(
+    "ecociente_chats_total",
+    "Respostas do /chat; resolved=true quando o juiz de saída aprovou a resposta final",
+    ["resolved"],
+)
 
 
 def safe_label(value: str, max_len: int = 60) -> str:
