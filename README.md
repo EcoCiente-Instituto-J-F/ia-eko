@@ -380,7 +380,7 @@ flowchart TD
     Z --> N[Resposta ao usuário]
 ```
 
-O juiz de saída recebe o rascunho junto com as evidências que o especialista realmente consultou — trechos recuperados pelo RAG ou o retorno das tools de PostgreSQL/Neo4j — e reprova ou censura o que não estiver nelas.
+O juiz de saída recebe o rascunho junto com as evidências que o especialista realmente consultou — trechos recuperados pelo RAG ou o retorno das tools de PostgreSQL/Neo4j — e reprova ou censura o que não estiver nelas (exceto o FAQ canônico do Qdrant e o especialista `coletas`, que não passam pelo juiz LLM).
 
 ### Especialistas
 
