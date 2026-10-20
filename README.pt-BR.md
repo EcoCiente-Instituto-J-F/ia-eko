@@ -65,7 +65,7 @@ O projeto está em desenvolvimento ativo:
 - [x] Rodar os evals com o modelo de produção e registrar a acurácia de referência
 - [x] Rodar `python -m src.etl.populate_graph --validar` no Aura e registrar os tempos reais
 - [x] Tool do agente `grafo` para consultar recomendações de curso
-- [ ] Memória de longo prazo por usuário (hoje a memória vive dentro da sessão)
+- [x] Memória de longo prazo por usuário entre conversas (`GET`/`DELETE /api/v1/memory`)
 - [ ] Cliente A2A usado pelos agentes para consultar agentes externos
 
 ## Pré-requisitos
@@ -155,6 +155,7 @@ A API sobe em `http://127.0.0.1:8000`. Endpoints principais:
 | `GET` | `/api/v1/chat/quota` | Quantas respostas o usuário ainda tem hoje |
 | `GET` | `/api/v1/agents` | Lista os especialistas disponíveis |
 | `POST` / `GET` / `DELETE` | `/api/v1/sessions`, `/api/v1/sessions/{session_id}` | Cria, consulta e encerra uma sessão de conversa |
+| `GET` / `DELETE` | `/api/v1/memory` | O que o assistente lembra do usuário entre conversas; pode ser apagado a qualquer momento |
 | `GET` | `/api/v1/rankings/moradores`, `/torres`, `/me` | Ranking de reciclagem (conforme perfil) e a posição do próprio usuário |
 | `GET` | `/api/v1/costs` | Custo, custo por resolução e ROI projetados para 100 e 1000 usuários/semana |
 | `GET` | `/health` | Healthcheck agregado (LLM, Postgres, Mongo/Redis, RAG, Neo4j, Qdrant, calendário) |
@@ -202,7 +203,7 @@ Checados antes de qualquer chamada de LLM (`src/services/quota_service.py`). Est
 
 | Perfil | Respostas/dia | Observação |
 | --- | --- | --- |
-| `usuario_comum` | 20 | Sessão encerrada em 10 perguntas: o resumo de memória (LLM extra) nunca é acionado |
+| `usuario_comum` | 20 | Sessão encerrada em 10 perguntas: o resumo da sessão nunca é acionado; a memória de longo prazo continua sendo atualizada em segundo plano após cada resposta |
 | `morador_residencial` | 40 | |
 | `usuario_comercial` | 50 | |
 | `cooperativa` | 80 | Uso operacional (agenda de coletas) |

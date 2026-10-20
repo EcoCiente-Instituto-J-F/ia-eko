@@ -100,6 +100,8 @@ roi                       = (beneficio - custo_total) / custo_total
 
 Sem solicitações medidas, todos os campos derivados da amostra (`custo_api_brl`, `custo_total_brl`, `custo_por_solicitacao_brl`, `resolucoes_semana`, `custo_por_resolucao_brl`, `beneficio_brl`, `roi`) são `null`; só infra e solicitações projetadas aparecem. Com amostras, um denominador zero (sem resoluções, custo total zero) também devolve `null` em vez de um número inventado.
 
+A chamada de consolidação da memória de longo prazo (`memoria_longo_prazo`, uma por resposta com `LONG_TERM_MEMORY_EVERY_TURNS=1`) roda em segundo plano; seu custo entra em `custo_total_brl` e nas médias de `/api/v1/costs` sem contar como solicitação.
+
 ### Como ler `GET /api/v1/costs`
 
 Endpoint sem autenticação, como o `/metrics`. Retorna:
