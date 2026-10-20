@@ -110,21 +110,7 @@ class AgentSuite:
         evidence = tool_evidence(messages)
         if not messages:
             return str(result), evidence
-        return self._message_text(messages[-1].content), evidence
-
-    @staticmethod
-    def _message_text(content: Any) -> str:
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            parts = []
-            for part in content:
-                if isinstance(part, dict) and part.get("text"):
-                    parts.append(str(part["text"]))
-                else:
-                    parts.append(str(part))
-            return "\n".join(parts)
-        return str(content)
+        return messages[-1].text, evidence
 
     async def run_analytics(self, prompt: str) -> tuple[str, str]:
         if self.settings.llm_provider == "mock":
