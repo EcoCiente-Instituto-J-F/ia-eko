@@ -199,8 +199,8 @@ def test_e2e_json_route_is_respected(client) -> None:
     )
     scripted = client.app.state.graph.agents.invoke
 
-    async def run_analytics(prompt: str) -> str:
-        return await scripted("analytics", prompt)
+    async def run_analytics(prompt: str) -> tuple[str, str]:
+        return await scripted("analytics", prompt), ""
 
     client.app.state.graph.agents.run_analytics = run_analytics
     body = _post(client, "Quantos pontos eu fiz?").json()
