@@ -177,6 +177,8 @@ class ChatService:
             texto = sanitize_output(texto).strip()[: settings.long_term_memory_max_chars]
             if not validate_input(texto).allowed:
                 logger.warning("memoria_longo_prazo_descartada", extra={"usuario_id": user_id})
+                # Não grava, mas avança a marca: a mesma janela não é reprocessada a cada turno.
+                await self.sessions.mark_long_term_memory(session_id, user_id, novas[-1]["created_at"])
                 return
             if await self.sessions.save_user_memory(user_id, texto, expected_revision=atual["revision"]):
                 await self.sessions.mark_long_term_memory(session_id, user_id, novas[-1]["created_at"])
@@ -308,5 +310,3 @@ class ChatService:
         )
         yield "answer", {"answer": answer}
         yield "done", response.model_dump(mode="json")
-        # O cliente já recebeu tudo; a consolidação não atrasa a resposta.
-        await self.remember(user_id, session_id)
