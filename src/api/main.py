@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from src.agents.graph import EcoGraphRuntime
-from src.api.routes import agents, chat, health, observability, ranking, root, sessions
+from src.api.routes import agents, chat, health, memory, observability, ranking, root, sessions
 from src.core.config import Settings
 from src.core.logging import configure_logging
 from src.database.mongodb import mongo_db
@@ -144,6 +144,7 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(chat.router)
     app.include_router(sessions.router)
+    app.include_router(memory.router)
     app.include_router(agents.router)
     app.include_router(ranking.router)
     app.include_router(observability.router)
