@@ -47,11 +47,3 @@ async def ask_external_agent(
     finally:
         if owned:
             await http.aclose()
-
-
-async def _main() -> None:
-    print(await ask_external_agent("http://127.0.0.1:8000", "Como separar recicláveis?"))
-
-
-if __name__ == "__main__":
-    asyncio.run(_main())
