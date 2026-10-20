@@ -310,7 +310,7 @@ class EcoGraphRuntime:
             f"CONTEXTO_MEMORIA=\n{self._format_memory_context(state.get('memory_context', {}))}\n"
             "Use exclusivamente ferramentas autorizadas e não invente números quando a consulta falhar."
         )
-        answer = await self.agents.run_analytics(prompt)
+        answer, _evidence = await self.agents.run_analytics(prompt)
         return {
             **self._mark(state, "analytics", started),
             "candidate_answer": answer,
