@@ -56,6 +56,5 @@ data:
   LANGFUSE_HOST: "http://langfuse-web:3000"
 
   RUN_INTEGRATION_TESTS: "false"
-  RUN_CALENDAR_INTEGRATION_TESTS: "false"
 
   ALLOW_TEST_IDENTITY_HEADERS: "false"
