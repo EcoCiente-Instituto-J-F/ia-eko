@@ -46,7 +46,7 @@ data:
   SESSION_LOCK_TTL_SECONDS: "30"
   SESSION_LOCK_WAIT_SECONDS: "45"
 
-  # FAQ: rag (FAISS + LLM) ou qdrant (resposta canônica, sem LLM; exige carga
+  # FAQ: rag (RAG em memória + LLM) ou qdrant (resposta canônica, sem LLM; exige carga
   # com python -m src.etl.populate_qdrant e ~2,5 GB de memória para o modelo).
   FAQ_BACKEND: "rag"
 

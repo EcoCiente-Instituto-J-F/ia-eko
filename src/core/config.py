@@ -87,7 +87,7 @@ class Settings:
     rag_chunk_overlap: int = 150
 
     # FAQ por busca vetorial no Qdrant: responde com a `resposta_canonica` do
-    # payload, sem LLM. "rag" = fluxo antigo (FAISS + LLM).
+    # payload, sem LLM. "rag" = fluxo antigo (RAG em memória + LLM).
     faq_backend: str = "rag"
     qdrant_url: str | None = None
     qdrant_api_key: str | None = None

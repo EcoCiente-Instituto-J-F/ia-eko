@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import re
-import unicodedata
 
 from src.integrations.calendar.schemas import Agendamento, CalendarToolError
 from src.integrations.mcp.client import CalendarMcpClient, McpToolProtocolError
 from src.security.policies import action_for_route, authorize_action
 from src.shared.context import UserContext
+from src.shared.text import fold
 
 AGENT_NAME = "coletas"
 
@@ -79,7 +79,7 @@ class CollectionAgent:
     def _should_list(cls, message: str, action: str) -> bool:
         if action == "coleta_agenda":
             return True
-        text = cls._normalize(message)
+        text = fold(message)
         markers = (
             "liste",
             "listar",
@@ -99,7 +99,7 @@ class CollectionAgent:
 
     @classmethod
     def _filters_from_message(cls, message: str, *, include_status: bool) -> dict[str, object]:
-        text = cls._normalize(message)
+        text = fold(message)
         filters: dict[str, object] = {}
 
         if include_status:
@@ -135,7 +135,7 @@ class CollectionAgent:
 
     @classmethod
     def _period_from_message(cls, message: str) -> tuple[datetime, datetime] | None:
-        text = cls._normalize(message)
+        text = fold(message)
         today = date.today()
         if "amanha" in text:
             target = today + timedelta(days=1)
@@ -197,9 +197,3 @@ class CollectionAgent:
             "protocol_error": "A API de calendário respondeu fora do contrato esperado.",
         }
         return messages.get(error.code, "Não consegui consultar o calendário neste momento.")
-
-    @staticmethod
-    def _normalize(value: str) -> str:
-        value = unicodedata.normalize("NFD", value.lower())
-        value = "".join(char for char in value if unicodedata.category(char) != "Mn")
-        return " ".join(value.split())

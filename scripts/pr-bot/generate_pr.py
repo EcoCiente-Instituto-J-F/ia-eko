@@ -125,82 +125,39 @@ def github_headers():
     }
 
 
-def github_get(path, params=None):
-    response = requests.get(
+def github(method, path, **kwargs):
+    response = requests.request(
+        method,
         f"{GITHUB_API_URL}{path}",
         headers=github_headers(),
-        params=params,
         timeout=30,
+        **kwargs,
     )
-
     response.raise_for_status()
-
     return response.json()
 
 
-def github_patch(path, payload):
-    response = requests.patch(
-        f"{GITHUB_API_URL}{path}",
-        headers=github_headers(),
-        json=payload,
-        timeout=30,
-    )
-
-    response.raise_for_status()
-
-    return response.json()
+def github_paginate(path):
+    items = []
+    page = 1
+    while True:
+        batch = github("GET", path, params={"per_page": 100, "page": page})
+        items.extend(batch)
+        if len(batch) < 100:
+            return items
+        page += 1
 
 
 def get_pull_request():
-    return github_get(
-        f"/repos/{GITHUB_REPOSITORY}/pulls/{PR_NUMBER}"
-    )
+    return github("GET", f"/repos/{GITHUB_REPOSITORY}/pulls/{PR_NUMBER}")
 
 
 def get_commits():
-    commits = []
-    page = 1
-
-    while True:
-        batch = github_get(
-            f"/repos/{GITHUB_REPOSITORY}/pulls/{PR_NUMBER}/commits",
-            {
-                "per_page": 100,
-                "page": page,
-            },
-        )
-
-        commits.extend(batch)
-
-        if len(batch) < 100:
-            break
-
-        page += 1
-
-    return commits
+    return github_paginate(f"/repos/{GITHUB_REPOSITORY}/pulls/{PR_NUMBER}/commits")
 
 
 def get_files():
-    files = []
-    page = 1
-
-    while True:
-        batch = github_get(
-            f"/repos/{GITHUB_REPOSITORY}/pulls/{PR_NUMBER}/files",
-            {
-                "per_page": 100,
-                "page": page,
-            },
-        )
-
-        files.extend(batch)
-
-        if len(batch) < 100:
-            break
-
-        page += 1
-
-    return files
+    return github_paginate(f"/repos/{GITHUB_REPOSITORY}/pulls/{PR_NUMBER}/files")
 
 
 # ============================================================
@@ -638,11 +595,10 @@ def replace_automatic_section(
 def update_pull_request(
     body,
 ):
-    return github_patch(
+    return github(
+        "PATCH",
         f"/repos/{GITHUB_REPOSITORY}/pulls/{PR_NUMBER}",
-        {
-            "body": body
-        },
+        json={"body": body},
     )
 
 

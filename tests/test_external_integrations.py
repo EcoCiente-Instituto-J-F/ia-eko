@@ -23,8 +23,8 @@ class StubAuthenticationService:
         return None
 
 
-class FakeCalendarTools:
-    """Substitui CalendarTools nos testes: mesma interface (next_collection/list_collections),
+class FakeCalendarMcp:
+    """Substitui o CalendarMcpClient nos testes: mesma interface (buscar_proxima),
     sem depender de MCP, HTTP ou Authorization header."""
 
     def __init__(self, result: BuscarProximaColetaToolResult | None = None, error: Exception | None = None):
@@ -32,7 +32,7 @@ class FakeCalendarTools:
         self.error = error
         self.calls: list[tuple[int | None, str | None]] = []
 
-    async def next_collection(self, user: UserContext, **filters) -> BuscarProximaColetaToolResult:
+    async def buscar_proxima(self, user: UserContext, **filters) -> BuscarProximaColetaToolResult:
         self.calls.append(user.condominio_id)
         if self.error is not None:
             raise self.error
@@ -152,7 +152,7 @@ def test_collection_agent_calls_calendar_after_router(client) -> None:
             token="jwt_calendar",
         ),
     )
-    fake_tools = FakeCalendarTools(
+    fake_calendar = FakeCalendarMcp(
         result=BuscarProximaColetaToolResult(
             ok=True,
             found=True,
@@ -166,7 +166,7 @@ def test_collection_agent_calls_calendar_after_router(client) -> None:
             ),
         )
     )
-    client.app.state.graph.collection_agent.tools = fake_tools
+    client.app.state.graph.collection_agent.calendar = fake_calendar
 
     response = client.post(
         "/api/v1/chat",
@@ -178,7 +178,7 @@ def test_collection_agent_calls_calendar_after_router(client) -> None:
     assert body["agent"] == "coletas"
     assert "orquestrador" in body["agents_called"]
     assert "coletas" in body["agents_called"]
-    assert fake_tools.calls == [55]
+    assert fake_calendar.calls == [55]
     assert "20/01/2030" in body["answer"]
 
 
@@ -193,7 +193,7 @@ def test_collection_agent_does_not_invent_dates_when_calendar_fails(client) -> N
             token="jwt_calendar",
         ),
     )
-    client.app.state.graph.collection_agent.tools = FakeCalendarTools(
+    client.app.state.graph.collection_agent.calendar = FakeCalendarMcp(
         error=McpToolProtocolError("calendar offline")
     )
 
@@ -205,3 +205,14 @@ def test_collection_agent_does_not_invent_dates_when_calendar_fails(client) -> N
     assert response.status_code == 200
     assert "Não consegui executar a consulta ao calendário" in response.json()["answer"]
     assert "20/01/2030" not in response.json()["answer"]
+
+
+def test_message_date_formats() -> None:
+    from datetime import date
+
+    from src.agents.coleta.agent import CollectionAgent
+
+    assert CollectionAgent._message_date("31/12/2026") == date(2026, 12, 31)
+    assert CollectionAgent._message_date("2026-12-31") == date(2026, 12, 31)
+    assert CollectionAgent._message_date("31/02/2026") is None
+    assert CollectionAgent._message_date("sem data") is None

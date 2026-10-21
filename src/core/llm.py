@@ -54,17 +54,18 @@ def build_embeddings(settings: Settings) -> Any:
         return HashEmbeddings()
     if provider == "local":  # alias de ollama
         provider = "ollama"
+    lc_provider = provider
     if provider == "ollama":
         kwargs: dict[str, Any] = {"base_url": settings.ollama_base_url}
     elif provider == "gemini":
         if not settings.gemini_api_key:
             raise ProviderConfigurationError("GEMINI_API_KEY é obrigatória quando EMBEDDING_PROVIDER=gemini.")
-        provider, kwargs = "google_genai", {"google_api_key": settings.gemini_api_key}
+        lc_provider, kwargs = "google_genai", {"google_api_key": settings.gemini_api_key}
     else:
         raise ProviderConfigurationError(
             f"EMBEDDING_PROVIDER={provider!r} inválido. Use ollama/local, mock ou gemini."
         )
     try:
-        return init_embeddings(settings.embedding_model, provider=provider, **kwargs)
+        return init_embeddings(settings.embedding_model, provider=lc_provider, **kwargs)
     except ImportError as exc:
         raise ProviderConfigurationError(f"Instale requirements-optional.txt para usar embeddings {provider}.") from exc
