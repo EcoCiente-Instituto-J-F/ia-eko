@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import unicodedata
+from src.shared.text import fold
 
 USUARIO_COMUM = "USUARIO_COMUM"
 SINDICO_RESIDENCIAL = "SINDICO_RESIDENCIAL"
@@ -11,9 +11,7 @@ COOPERATIVA = "COOPERATIVA"
 
 
 def _key(value: str) -> str:
-    value = unicodedata.normalize("NFD", value.strip().upper())
-    value = "".join(char for char in value if unicodedata.category(char) != "Mn")
-    return "_".join(value.replace("-", " ").split())
+    return "_".join(fold(value.replace("-", " ")).upper().split())
 
 
 PROFILE_ALIASES = {
