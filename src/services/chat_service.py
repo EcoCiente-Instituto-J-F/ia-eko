@@ -3,14 +3,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextlib import aclosing
+from contextlib import aclosing, asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from src.agents.graph import EcoGraphRuntime
 from src.api.schemas.chat import ChatRequest, ChatResponse, JudgeDecisionResponse, QuotaInfo, TokenUsageResponse
 from src.observability.cost import record_chat
 from src.observability.metrics import AGENTS_CALLED, TOKENS_PER_CHAT
-from src.observability.tracing import ConversationTrace, TracingService, conversation_trace
+from src.observability.tracing import ConversationTrace, conversation_trace
 from src.security.guardrails import sanitize_output, validate_input
 from src.security.request_context import authenticated_request_context
 from src.services.quota_service import QuotaExceeded, QuotaService, QuotaStatus
@@ -37,18 +38,23 @@ _PROGRESS_LABELS = {
 }
 
 
+@dataclass
+class _Turn:
+    trace: ConversationTrace | None = None
+    state: dict[str, Any] = field(default_factory=dict)
+    answer: str = ""
+
+
 class ChatService:
     def __init__(
         self,
         sessions: SessionService,
         graph: EcoGraphRuntime,
         quotas: QuotaService | None = None,
-        tracing: TracingService | None = None,
     ):
         self.sessions = sessions
         self.graph = graph
         self.quotas = quotas
-        self.tracing = tracing
         self._remember_locks: dict[int, asyncio.Lock] = {}
 
     # ------------------------------------------------------------------ #
@@ -147,6 +153,33 @@ class ChatService:
         session = await self.sessions.get_session(session_id, user_context.user_id)
         self.quotas.check_session(user_context, session)
 
+    @asynccontextmanager
+    async def _turn(
+        self, request: ChatRequest, request_id: str, user_context: UserContext, session_id: str
+    ) -> AsyncIterator[_Turn]:
+        """Lock da sessão → teto → mensagem do usuário → contexto de trace/token.
+        Ao sair sem erro: marca bloqueio e grava a resposta (`turn.answer`)."""
+        user_id = user_context.user_id
+        # Uma sessão é processada em ordem no mesmo runtime. Isso evita duas
+        # respostas simultâneas reordenarem append/compactação da memória.
+        async with self.sessions.conversation_guard(session_id):
+            await self._recheck_session(user_context, session_id)
+            message_id = await self.sessions.append_message(session_id, user_id, "user", request.mensagem)
+            turn = _Turn()
+            with conversation_trace(
+                session_id=session_id,
+                user_id=user_id,
+                request_id=request_id,
+                perfil=user_context.perfil,
+            ) as trace, authenticated_request_context(user_context.token):
+                turn.trace = trace
+                # Sem try/finally de propósito: erro no corpo (ou stream fechado
+                # pelo cliente) sai daqui sem marcar bloqueio nem gravar resposta.
+                yield turn
+            if turn.state.get("blocked"):
+                await self.sessions.flag_message_blocked(session_id, user_id, message_id)
+            turn.answer = await self._finish(session_id, user_id, turn.state)
+
     async def remember(self, user_id: int, session_id: str, *, force: bool = False) -> None:
         """Consolida na memória de longo prazo o que a sessão trouxe de novo.
 
@@ -203,28 +236,14 @@ class ChatService:
         user_context: UserContext,
     ) -> ChatResponse:
         started = time.perf_counter()
-        user_id = user_context.user_id
         session, quota_status = await self.admit(request, user_context)
         session_id = session["session_id"]
 
         try:
-            # Uma sessão é processada em ordem no mesmo runtime. Isso evita duas
-            # respostas simultâneas reordenarem append/compactação da memória.
-            async with self.sessions.conversation_guard(session_id):
-                await self._recheck_session(user_context, session_id)
-                message_id = await self.sessions.append_message(session_id, user_id, "user", request.mensagem)
-                with conversation_trace(
-                    session_id=session_id,
-                    user_id=user_id,
-                    request_id=request_id,
-                    perfil=user_context.perfil,
-                ) as trace, authenticated_request_context(user_context.token):
-                    state = await self.graph.invoke(
-                        self._initial_state(request, request_id, session_id, user_context)
-                    )
-                if state.get("blocked"):
-                    await self.sessions.flag_message_blocked(session_id, user_id, message_id)
-                answer = await self._finish(session_id, user_id, state)
+            async with self._turn(request, request_id, user_context, session_id) as turn:
+                turn.state = await self.graph.invoke(
+                    self._initial_state(request, request_id, session_id, user_context)
+                )
         except Exception:
             # Erro do servidor (ou teto da sessão atingido dentro do lock) não
             # consome a cota do usuário.
@@ -234,10 +253,10 @@ class ChatService:
         return self._response(
             session_id=session_id,
             request_id=request_id,
-            state=state,
-            answer=answer,
+            state=turn.state,
+            answer=turn.answer,
             started=started,
-            trace=trace,
+            trace=turn.trace,
             quota_status=quota_status,
         )
 
@@ -263,39 +282,26 @@ class ChatService:
         real do pipeline e entrega a resposta já validada.
         """
         started = time.perf_counter()
-        user_id = user_context.user_id
         session_id = session["session_id"]
         yield "session", {"session_id": session_id, "request_id": request_id}
 
-        state: dict[str, Any] = {}
         last_label = None
         try:
-            async with self.sessions.conversation_guard(session_id):
-                await self._recheck_session(user_context, session_id)
-                message_id = await self.sessions.append_message(session_id, user_id, "user", request.mensagem)
-                with conversation_trace(
-                    session_id=session_id,
-                    user_id=user_id,
-                    request_id=request_id,
-                    perfil=user_context.perfil,
-                ) as trace, authenticated_request_context(user_context.token):
-                    # aclosing: se o cliente desconectar, o stream do grafo é
-                    # fechado junto (sem tarefas do LangGraph órfãs).
-                    async with aclosing(
-                        self.graph.astream(self._initial_state(request, request_id, session_id, user_context))
-                    ) as events:
-                        async for mode, chunk in events:
-                            if mode == "values":
-                                state = chunk
-                                continue
-                            for node in chunk:
-                                label = _PROGRESS_LABELS.get(node)
-                                if label and label != last_label:
-                                    last_label = label
-                                    yield "progress", {"step": node, "label": label}
-                if state.get("blocked"):
-                    await self.sessions.flag_message_blocked(session_id, user_id, message_id)
-                answer = await self._finish(session_id, user_id, state)
+            async with self._turn(request, request_id, user_context, session_id) as turn:
+                # aclosing: se o cliente desconectar, o stream do grafo é
+                # fechado junto (sem tarefas do LangGraph órfãs).
+                async with aclosing(
+                    self.graph.astream(self._initial_state(request, request_id, session_id, user_context))
+                ) as events:
+                    async for mode, chunk in events:
+                        if mode == "values":
+                            turn.state = chunk
+                            continue
+                        for node in chunk:
+                            label = _PROGRESS_LABELS.get(node)
+                            if label and label != last_label:
+                                last_label = label
+                                yield "progress", {"step": node, "label": label}
         except QuotaExceeded as exc:
             await self._refund(quota_status)
             yield "error", {"codigo": f"limite_{exc.kind}", "detail": exc.message}
@@ -312,11 +318,11 @@ class ChatService:
         response = self._response(
             session_id=session_id,
             request_id=request_id,
-            state=state,
-            answer=answer,
+            state=turn.state,
+            answer=turn.answer,
             started=started,
-            trace=trace,
+            trace=turn.trace,
             quota_status=quota_status,
         )
-        yield "answer", {"answer": answer}
+        yield "answer", {"answer": turn.answer}
         yield "done", response.model_dump(mode="json")
