@@ -4,6 +4,7 @@
 
 __pycache__/
 *.pyc
+pytest.py
 
 k8s/secret.yaml
 
