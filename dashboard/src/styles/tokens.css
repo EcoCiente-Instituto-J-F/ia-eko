@@ -1,0 +1,55 @@
+/* Identidade EcoCiente (Figma: 02 · Identidade Visual). Valores vinculantes. */
+:root {
+  /* paleta da marca */
+  --salvia: #a7b7aa;
+  --floresta: #2e5c41;
+  --verde-profundo: #064e3b;
+  --petroleo: #1d464d;
+  --azul: #205867;
+  --framboesa: #b93c63;
+  --rosa: #d64573;
+  --tinta: #0f1723;
+  --creme: #f8f4f0;
+  --branco: #ffffff;
+
+  /* papéis */
+  --fundo: var(--creme);
+  --fundo-centro: var(--branco);
+  --texto: var(--tinta);
+  --texto-mudo: #4b5b57; /* 6,3:1 sobre creme */
+  --linha: color-mix(in srgb, var(--salvia) 70%, transparent);
+  --linha-forte: var(--salvia);
+  --topo: var(--verde-profundo);
+  --topo-texto: var(--creme);
+  --topo-mudo: var(--salvia); /* 6,2:1 sobre o verde profundo */
+  --latencia: var(--azul);
+  --custo: var(--floresta);
+  --alerta: var(--framboesa);
+  --alerta-vivo: var(--rosa);
+  --foco: var(--azul);
+
+  /* tipografia */
+  --fonte-titulo: "Nunito Variable", "Nunito", system-ui, sans-serif;
+  --fonte-ui: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", system-ui, sans-serif;
+  --fonte-valor: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Consolas, monospace;
+
+  --t-12: 0.75rem;
+  --t-13: 0.8125rem;
+  --t-14: 0.875rem;
+  --t-16: 1rem;
+  --t-20: 1.25rem;
+  --t-28: 1.75rem;
+  --t-40: 2.5rem;
+
+  /* espaço (base 4) */
+  --e1: 4px;
+  --e2: 8px;
+  --e3: 12px;
+  --e4: 16px;
+  --e5: 24px;
+  --e6: 32px;
+
+  --raio: 6px;
+  --ease-saida: cubic-bezier(0.16, 1, 0.3, 1);
+  --altura-topo: 64px;
+}
