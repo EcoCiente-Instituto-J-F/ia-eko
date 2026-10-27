@@ -10,3 +10,8 @@ k8s/secret.yaml
 # Checklist stuff
 docs\REQUISITOS_E_FLUXOS.md
 REQUISITOS_E_FLUXOS.md
+
+# Ignore the following files and directories
+*.log
+
+!.gitkeep
