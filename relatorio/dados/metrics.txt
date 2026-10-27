@@ -1,0 +1,348 @@
+# HELP python_gc_objects_collected_total Objects collected during gc
+# TYPE python_gc_objects_collected_total counter
+python_gc_objects_collected_total{generation="0"} 0.0
+python_gc_objects_collected_total{generation="1"} 2618.0
+python_gc_objects_collected_total{generation="2"} 0.0
+# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC
+# TYPE python_gc_objects_uncollectable_total counter
+python_gc_objects_uncollectable_total{generation="0"} 0.0
+python_gc_objects_uncollectable_total{generation="1"} 0.0
+python_gc_objects_uncollectable_total{generation="2"} 0.0
+# HELP python_gc_collections_total Number of times this generation was collected
+# TYPE python_gc_collections_total counter
+python_gc_collections_total{generation="0"} 0.0
+python_gc_collections_total{generation="1"} 27.0
+python_gc_collections_total{generation="2"} 0.0
+# HELP python_info Python platform information
+# TYPE python_info gauge
+python_info{implementation="CPython",major="3",minor="14",patchlevel="3",version="3.14.3"} 1.0
+# HELP ecociente_http_requests_total Total de requisições HTTP
+# TYPE ecociente_http_requests_total counter
+ecociente_http_requests_total{method="GET",route="/metrics",status="200"} 1.0
+ecociente_http_requests_total{method="POST",route="/api/v1/chat",status="200"} 400.0
+# HELP ecociente_http_requests_created Total de requisições HTTP
+# TYPE ecociente_http_requests_created gauge
+ecociente_http_requests_created{method="GET",route="/metrics",status="200"} 1.7930483973773847e+09
+ecociente_http_requests_created{method="POST",route="/api/v1/chat",status="200"} 1.7930483993370006e+09
+# HELP ecociente_http_request_errors_total Requisições HTTP com erro
+# TYPE ecociente_http_request_errors_total counter
+# HELP ecociente_http_request_duration_seconds Latência HTTP
+# TYPE ecociente_http_request_duration_seconds histogram
+ecociente_http_request_duration_seconds_bucket{le="0.005",method="GET",route="/metrics"} 0.0
+ecociente_http_request_duration_seconds_bucket{le="0.01",method="GET",route="/metrics"} 0.0
+ecociente_http_request_duration_seconds_bucket{le="0.025",method="GET",route="/metrics"} 0.0
+ecociente_http_request_duration_seconds_bucket{le="0.05",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="0.075",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="0.1",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="0.25",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="0.5",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="0.75",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="1.0",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="2.5",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="5.0",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="7.5",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="10.0",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_bucket{le="+Inf",method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_count{method="GET",route="/metrics"} 1.0
+ecociente_http_request_duration_seconds_sum{method="GET",route="/metrics"} 0.027904200018383563
+ecociente_http_request_duration_seconds_bucket{le="0.005",method="POST",route="/api/v1/chat"} 0.0
+ecociente_http_request_duration_seconds_bucket{le="0.01",method="POST",route="/api/v1/chat"} 27.0
+ecociente_http_request_duration_seconds_bucket{le="0.025",method="POST",route="/api/v1/chat"} 197.0
+ecociente_http_request_duration_seconds_bucket{le="0.05",method="POST",route="/api/v1/chat"} 200.0
+ecociente_http_request_duration_seconds_bucket{le="0.075",method="POST",route="/api/v1/chat"} 201.0
+ecociente_http_request_duration_seconds_bucket{le="0.1",method="POST",route="/api/v1/chat"} 243.0
+ecociente_http_request_duration_seconds_bucket{le="0.25",method="POST",route="/api/v1/chat"} 400.0
+ecociente_http_request_duration_seconds_bucket{le="0.5",method="POST",route="/api/v1/chat"} 400.0
+ecociente_http_request_duration_seconds_bucket{le="0.75",method="POST",route="/api/v1/chat"} 400.0
+ecociente_http_request_duration_seconds_bucket{le="1.0",method="POST",route="/api/v1/chat"} 400.0
+ecociente_http_request_duration_seconds_bucket{le="2.5",method="POST",route="/api/v1/chat"} 400.0
+ecociente_http_request_duration_seconds_bucket{le="5.0",method="POST",route="/api/v1/chat"} 400.0
+ecociente_http_request_duration_seconds_bucket{le="7.5",method="POST",route="/api/v1/chat"} 400.0
+ecociente_http_request_duration_seconds_bucket{le="10.0",method="POST",route="/api/v1/chat"} 400.0
+ecociente_http_request_duration_seconds_bucket{le="+Inf",method="POST",route="/api/v1/chat"} 400.0
+ecociente_http_request_duration_seconds_count{method="POST",route="/api/v1/chat"} 400.0
+ecociente_http_request_duration_seconds_sum{method="POST",route="/api/v1/chat"} 25.007672998006456
+# HELP ecociente_http_request_duration_seconds_created Latência HTTP
+# TYPE ecociente_http_request_duration_seconds_created gauge
+ecociente_http_request_duration_seconds_created{method="GET",route="/metrics"} 1.7930483973774035e+09
+ecociente_http_request_duration_seconds_created{method="POST",route="/api/v1/chat"} 1.7930483993370302e+09
+# HELP ecociente_agent_duration_seconds Latência por agente/nó
+# TYPE ecociente_agent_duration_seconds histogram
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="0.005"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="0.01"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="0.025"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="0.05"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="0.075"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="0.1"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="0.25"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="0.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="0.75"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="1.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="2.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="5.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="7.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="10.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_entrada",le="+Inf"} 400.0
+ecociente_agent_duration_seconds_count{agent="guardrail_entrada"} 400.0
+ecociente_agent_duration_seconds_sum{agent="guardrail_entrada"} 0.029132299358025193
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="0.005"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="0.01"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="0.025"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="0.05"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="0.075"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="0.1"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="0.25"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="0.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="0.75"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="1.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="2.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="5.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="7.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="10.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="memoria",le="+Inf"} 400.0
+ecociente_agent_duration_seconds_count{agent="memoria"} 400.0
+ecociente_agent_duration_seconds_sum{agent="memoria"} 0.005757097853347659
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="0.005"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="0.01"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="0.025"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="0.05"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="0.075"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="0.1"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="0.25"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="0.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="0.75"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="1.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="2.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="5.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="7.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="10.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="verificar_compactacao",le="+Inf"} 400.0
+ecociente_agent_duration_seconds_count{agent="verificar_compactacao"} 400.0
+ecociente_agent_duration_seconds_sum{agent="verificar_compactacao"} 0.0007493002340197563
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="0.005"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="0.01"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="0.025"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="0.05"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="0.075"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="0.1"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="0.25"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="0.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="0.75"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="1.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="2.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="5.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="7.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="10.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="orquestrador",le="+Inf"} 400.0
+ecociente_agent_duration_seconds_count{agent="orquestrador"} 400.0
+ecociente_agent_duration_seconds_sum{agent="orquestrador"} 0.04681459942366928
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="0.005"} 199.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="0.01"} 216.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="0.025"} 360.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="0.05"} 395.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="0.075"} 399.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="0.1"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="0.25"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="0.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="0.75"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="1.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="2.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="5.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="7.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="10.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="educacional",le="+Inf"} 400.0
+ecociente_agent_duration_seconds_count{agent="educacional"} 400.0
+ecociente_agent_duration_seconds_sum{agent="educacional"} 4.688752499059774
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="0.005"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="0.01"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="0.025"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="0.05"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="0.075"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="0.1"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="0.25"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="0.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="0.75"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="1.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="2.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="5.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="7.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="10.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="juiz_saida",le="+Inf"} 400.0
+ecociente_agent_duration_seconds_count{agent="juiz_saida"} 400.0
+ecociente_agent_duration_seconds_sum{agent="juiz_saida"} 0.052737500285729766
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="0.005"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="0.01"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="0.025"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="0.05"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="0.075"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="0.1"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="0.25"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="0.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="0.75"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="1.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="2.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="5.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="7.5"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="10.0"} 400.0
+ecociente_agent_duration_seconds_bucket{agent="guardrail_saida",le="+Inf"} 400.0
+ecociente_agent_duration_seconds_count{agent="guardrail_saida"} 400.0
+ecociente_agent_duration_seconds_sum{agent="guardrail_saida"} 0.044662999687716365
+# HELP ecociente_agent_duration_seconds_created Latência por agente/nó
+# TYPE ecociente_agent_duration_seconds_created gauge
+ecociente_agent_duration_seconds_created{agent="guardrail_entrada"} 1.793048399322638e+09
+ecociente_agent_duration_seconds_created{agent="memoria"} 1.7930483993239183e+09
+ecociente_agent_duration_seconds_created{agent="verificar_compactacao"} 1.7930483993244557e+09
+ecociente_agent_duration_seconds_created{agent="orquestrador"} 1.7930483993255272e+09
+ecociente_agent_duration_seconds_created{agent="educacional"} 1.7930483993289685e+09
+ecociente_agent_duration_seconds_created{agent="juiz_saida"} 1.7930483993303943e+09
+ecociente_agent_duration_seconds_created{agent="guardrail_saida"} 1.7930483993344367e+09
+# HELP ecociente_rag_duration_seconds Latência do RAG
+# TYPE ecociente_rag_duration_seconds histogram
+ecociente_rag_duration_seconds_bucket{le="0.005",operation="startup_index"} 0.0
+ecociente_rag_duration_seconds_bucket{le="0.01",operation="startup_index"} 0.0
+ecociente_rag_duration_seconds_bucket{le="0.025",operation="startup_index"} 0.0
+ecociente_rag_duration_seconds_bucket{le="0.05",operation="startup_index"} 0.0
+ecociente_rag_duration_seconds_bucket{le="0.075",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_bucket{le="0.1",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_bucket{le="0.25",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_bucket{le="0.5",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_bucket{le="0.75",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_bucket{le="1.0",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_bucket{le="2.5",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_bucket{le="5.0",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_bucket{le="7.5",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_bucket{le="10.0",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_bucket{le="+Inf",operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_count{operation="startup_index"} 1.0
+ecociente_rag_duration_seconds_sum{operation="startup_index"} 0.05661199998576194
+ecociente_rag_duration_seconds_bucket{le="0.005",operation="search"} 200.0
+ecociente_rag_duration_seconds_bucket{le="0.01",operation="search"} 218.0
+ecociente_rag_duration_seconds_bucket{le="0.025",operation="search"} 361.0
+ecociente_rag_duration_seconds_bucket{le="0.05",operation="search"} 395.0
+ecociente_rag_duration_seconds_bucket{le="0.075",operation="search"} 399.0
+ecociente_rag_duration_seconds_bucket{le="0.1",operation="search"} 400.0
+ecociente_rag_duration_seconds_bucket{le="0.25",operation="search"} 400.0
+ecociente_rag_duration_seconds_bucket{le="0.5",operation="search"} 400.0
+ecociente_rag_duration_seconds_bucket{le="0.75",operation="search"} 400.0
+ecociente_rag_duration_seconds_bucket{le="1.0",operation="search"} 400.0
+ecociente_rag_duration_seconds_bucket{le="2.5",operation="search"} 400.0
+ecociente_rag_duration_seconds_bucket{le="5.0",operation="search"} 400.0
+ecociente_rag_duration_seconds_bucket{le="7.5",operation="search"} 400.0
+ecociente_rag_duration_seconds_bucket{le="10.0",operation="search"} 400.0
+ecociente_rag_duration_seconds_bucket{le="+Inf",operation="search"} 400.0
+ecociente_rag_duration_seconds_count{operation="search"} 400.0
+ecociente_rag_duration_seconds_sum{operation="search"} 4.617572900722735
+# HELP ecociente_rag_duration_seconds_created Latência do RAG
+# TYPE ecociente_rag_duration_seconds_created gauge
+ecociente_rag_duration_seconds_created{operation="startup_index"} 1.7930483875623558e+09
+ecociente_rag_duration_seconds_created{operation="search"} 1.7930483993286364e+09
+# HELP ecociente_tool_duration_seconds Latência de ferramentas
+# TYPE ecociente_tool_duration_seconds histogram
+# HELP ecociente_db_duration_seconds Latência de banco/cache
+# TYPE ecociente_db_duration_seconds histogram
+# HELP ecociente_llm_duration_seconds Latência do LLM
+# TYPE ecociente_llm_duration_seconds histogram
+# HELP ecociente_agents_called_per_chat Quantidade de agentes/nós chamados por /chat
+# TYPE ecociente_agents_called_per_chat histogram
+ecociente_agents_called_per_chat_bucket{le="0.005"} 0.0
+ecociente_agents_called_per_chat_bucket{le="0.01"} 0.0
+ecociente_agents_called_per_chat_bucket{le="0.025"} 0.0
+ecociente_agents_called_per_chat_bucket{le="0.05"} 0.0
+ecociente_agents_called_per_chat_bucket{le="0.075"} 0.0
+ecociente_agents_called_per_chat_bucket{le="0.1"} 0.0
+ecociente_agents_called_per_chat_bucket{le="0.25"} 0.0
+ecociente_agents_called_per_chat_bucket{le="0.5"} 0.0
+ecociente_agents_called_per_chat_bucket{le="0.75"} 0.0
+ecociente_agents_called_per_chat_bucket{le="1.0"} 0.0
+ecociente_agents_called_per_chat_bucket{le="2.5"} 0.0
+ecociente_agents_called_per_chat_bucket{le="5.0"} 0.0
+ecociente_agents_called_per_chat_bucket{le="7.5"} 400.0
+ecociente_agents_called_per_chat_bucket{le="10.0"} 400.0
+ecociente_agents_called_per_chat_bucket{le="+Inf"} 400.0
+ecociente_agents_called_per_chat_count 400.0
+ecociente_agents_called_per_chat_sum 2800.0
+# HELP ecociente_agents_called_per_chat_created Quantidade de agentes/nós chamados por /chat
+# TYPE ecociente_agents_called_per_chat_created gauge
+ecociente_agents_called_per_chat_created 1.793048384167591e+09
+# HELP ecociente_guardrail_blocked_total Entradas bloqueadas pelo guardrail
+# TYPE ecociente_guardrail_blocked_total counter
+# HELP ecociente_judge_rejected_total Respostas reprovadas pelo juiz de saída (reason = categoria fechada, nunca texto livre)
+# TYPE ecociente_judge_rejected_total counter
+# HELP ecociente_judge_decisions_total Decisões do juiz de saída
+# TYPE ecociente_judge_decisions_total counter
+ecociente_judge_decisions_total{agent="educacional",category="aprovado",outcome="approved"} 400.0
+# HELP ecociente_judge_decisions_created Decisões do juiz de saída
+# TYPE ecociente_judge_decisions_created gauge
+ecociente_judge_decisions_created{agent="educacional",category="aprovado",outcome="approved"} 1.7930483993302925e+09
+# HELP ecociente_input_judge_decisions_total Decisões do juiz de entrada
+# TYPE ecociente_input_judge_decisions_total counter
+ecociente_input_judge_decisions_total{category="aprovado",outcome="approved"} 400.0
+# HELP ecociente_input_judge_decisions_created Decisões do juiz de entrada
+# TYPE ecociente_input_judge_decisions_created gauge
+ecociente_input_judge_decisions_created{category="aprovado",outcome="approved"} 1.7930483993226166e+09
+# HELP ecociente_llm_tokens_total Tokens consumidos por provedor/agente
+# TYPE ecociente_llm_tokens_total counter
+# HELP ecociente_tokens_per_chat Tokens totais (entrada+saída) consumidos por resposta do /chat
+# TYPE ecociente_tokens_per_chat histogram
+ecociente_tokens_per_chat_bucket{le="0.0"} 400.0
+ecociente_tokens_per_chat_bucket{le="250.0"} 400.0
+ecociente_tokens_per_chat_bucket{le="500.0"} 400.0
+ecociente_tokens_per_chat_bucket{le="1000.0"} 400.0
+ecociente_tokens_per_chat_bucket{le="2000.0"} 400.0
+ecociente_tokens_per_chat_bucket{le="4000.0"} 400.0
+ecociente_tokens_per_chat_bucket{le="8000.0"} 400.0
+ecociente_tokens_per_chat_bucket{le="16000.0"} 400.0
+ecociente_tokens_per_chat_bucket{le="32000.0"} 400.0
+ecociente_tokens_per_chat_bucket{le="+Inf"} 400.0
+ecociente_tokens_per_chat_count 400.0
+ecociente_tokens_per_chat_sum 0.0
+# HELP ecociente_tokens_per_chat_created Tokens totais (entrada+saída) consumidos por resposta do /chat
+# TYPE ecociente_tokens_per_chat_created gauge
+ecociente_tokens_per_chat_created 1.7930483841677153e+09
+# HELP ecociente_quota_rejected_total Requisições recusadas por limite de uso
+# TYPE ecociente_quota_rejected_total counter
+# HELP ecociente_session_lock_wait_seconds Espera pelo lock da sessão antes de processar a mensagem
+# TYPE ecociente_session_lock_wait_seconds histogram
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="0.001"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="0.01"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="0.05"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="0.1"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="0.5"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="1.0"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="2.5"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="5.0"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="10.0"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="20.0"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="45.0"} 400.0
+ecociente_session_lock_wait_seconds_bucket{backend="local",le="+Inf"} 400.0
+ecociente_session_lock_wait_seconds_count{backend="local"} 400.0
+ecociente_session_lock_wait_seconds_sum{backend="local"} 0.014062701491639018
+# HELP ecociente_session_lock_wait_seconds_created Espera pelo lock da sessão antes de processar a mensagem
+# TYPE ecociente_session_lock_wait_seconds_created gauge
+ecociente_session_lock_wait_seconds_created{backend="local"} 1.7930483993157206e+09
+# HELP ecociente_session_lock_events_total Eventos do lock de sessão (acquired_redis, acquired_local, timeout, lost, redis_error)
+# TYPE ecociente_session_lock_events_total counter
+ecociente_session_lock_events_total{outcome="acquired_local"} 400.0
+# HELP ecociente_session_lock_events_created Eventos do lock de sessão (acquired_redis, acquired_local, timeout, lost, redis_error)
+# TYPE ecociente_session_lock_events_created gauge
+ecociente_session_lock_events_created{outcome="acquired_local"} 1.793048399315755e+09
+# HELP ecociente_routing_decisions_total Rotas escolhidas pelo orquestrador
+# TYPE ecociente_routing_decisions_total counter
+ecociente_routing_decisions_total{route="educacional"} 400.0
+# HELP ecociente_routing_decisions_created Rotas escolhidas pelo orquestrador
+# TYPE ecociente_routing_decisions_created gauge
+ecociente_routing_decisions_created{route="educacional"} 1.7930483993254776e+09
+# HELP ecociente_chat_cost_brl_total Custo estimado de API de IA das respostas do /chat, em R$ (preços vindos do ambiente)
+# TYPE ecociente_chat_cost_brl_total counter
+ecociente_chat_cost_brl_total 0.0
+# HELP ecociente_chat_cost_brl_created Custo estimado de API de IA das respostas do /chat, em R$ (preços vindos do ambiente)
+# TYPE ecociente_chat_cost_brl_created gauge
+ecociente_chat_cost_brl_created 1.7930483841678023e+09
+# HELP ecociente_chats_total Respostas do /chat; resolved=true quando o juiz de saída aprovou a resposta final
+# TYPE ecociente_chats_total counter
+ecociente_chats_total{resolved="true"} 400.0
+# HELP ecociente_chats_created Respostas do /chat; resolved=true quando o juiz de saída aprovou a resposta final
+# TYPE ecociente_chats_created gauge
+ecociente_chats_created{resolved="true"} 1.7930483993363805e+09
+# HELP ecociente_tool_scope_denied_total Chamadas de tool negadas pelo escopo do usuário (perfil sem a ação ou contexto ausente)
+# TYPE ecociente_tool_scope_denied_total counter

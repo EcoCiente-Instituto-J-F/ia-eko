@@ -1,0 +1,206 @@
+{
+  "gerado_em": "2026-10-27T17:49:33.158Z",
+  "cotacao": {
+    "usdBrl": 5.5884,
+    "data": "26/10/2026"
+  },
+  "premissas": {
+    "q": 5,
+    "tokIn": 2400,
+    "tokOut": 380,
+    "resolucao": 0.85,
+    "cacheEsperado": 0.5
+  },
+  "bench": {
+    "c1": {
+      "requisicoes": 200,
+      "concorrencia": 1,
+      "media": 15.01,
+      "mediana": 14.23,
+      "p95": 20.12,
+      "p99": 27.96,
+      "erro": 0,
+      "rps": 66.54
+    },
+    "c10": {
+      "requisicoes": 200,
+      "concorrencia": 10,
+      "media": 121.29,
+      "mediana": 118.79,
+      "p95": 154.7,
+      "p99": 165.99,
+      "erro": 0,
+      "rps": 81.56
+    }
+  },
+  "chat": {
+    "n": 400,
+    "media": 0.06251918249501615,
+    "p50": 0.05,
+    "p95": 0.23089171974522293,
+    "p99": 0.2461783439490446
+  },
+  "entreEtapas": 0.05034766675526044,
+  "nos": [
+    {
+      "id": "guardrail_entrada",
+      "rotulo": "Guardrail de entrada",
+      "chamadas": 400,
+      "media": 0.00007283074839506298,
+      "p50": 0.0025,
+      "p95": 0.00475,
+      "fatia": 0.005983704080271334
+    },
+    {
+      "id": "memoria",
+      "rotulo": "Memória",
+      "chamadas": 400,
+      "media": 0.000014392744633369148,
+      "p50": 0.0025,
+      "p95": 0.00475,
+      "fatia": 0.001182494024664345
+    },
+    {
+      "id": "verificar_compactacao",
+      "rotulo": "Verificar compactação",
+      "chamadas": 400,
+      "media": 0.0000018732505850493908,
+      "p50": 0.0025,
+      "p95": 0.00475,
+      "fatia": 0.00015390446227915645
+    },
+    {
+      "id": "orquestrador",
+      "rotulo": "Orquestrador",
+      "chamadas": 400,
+      "media": 0.0001170364985591732,
+      "p50": 0.0025,
+      "p95": 0.00475,
+      "fatia": 0.009615605900002907
+    },
+    {
+      "id": "educacional",
+      "rotulo": "Educacional",
+      "chamadas": 400,
+      "media": 0.011721881247649436,
+      "p50": 0.005294117647058823,
+      "p95": 0.039285714285714285,
+      "fatia": 0.9630584635701835
+    },
+    {
+      "id": "juiz_saida",
+      "rotulo": "Juiz de saída",
+      "chamadas": 400,
+      "media": 0.00013184375071432442,
+      "p50": 0.0025,
+      "p95": 0.00475,
+      "fatia": 0.010832155463077161
+    },
+    {
+      "id": "guardrail_saida",
+      "rotulo": "Guardrail de saída",
+      "chamadas": 400,
+      "media": 0.00011165749921929091,
+      "p50": 0.0025,
+      "p95": 0.00475,
+      "fatia": 0.009173672499521576
+    }
+  ],
+  "http": {
+    "total": 401,
+    "erros5xx": 0
+  },
+  "juiz": {
+    "aprovadas": 400,
+    "reprovadas": 0
+  },
+  "rotas": {
+    "educacional": 400
+  },
+  "custosBackend": {
+    "solicitacoes": 400,
+    "resolvidas": 400,
+    "taxa_resolucao": 1,
+    "custo_total_brl": 0,
+    "tokens_entrada": 0,
+    "tokens_saida": 0
+  },
+  "cenarios": [
+    {
+      "usuarios": 100,
+      "casos": [
+        {
+          "caso": "melhor",
+          "solicitacoesSemana": 500,
+          "custoPorSolicitacaoBrl": 0.0015115504320000002,
+          "custoApiSemanaBrl": 0.7557752160000001,
+          "custoTotalSemanaBrl": 0.7557752160000001,
+          "resolucoesSemana": 425,
+          "custoPorResolucaoBrl": 0.001778294625882353,
+          "beneficioSemanaBrl": 0,
+          "roi": -1
+        },
+        {
+          "caso": "esperado",
+          "solicitacoesSemana": 500,
+          "custoPorSolicitacaoBrl": 0.00277939074,
+          "custoApiSemanaBrl": 1.38969537,
+          "custoTotalSemanaBrl": 1.38969537,
+          "resolucoesSemana": 425,
+          "custoPorResolucaoBrl": 0.0032698714588235297,
+          "beneficioSemanaBrl": 0,
+          "roi": -1
+        },
+        {
+          "caso": "pior",
+          "solicitacoesSemana": 500,
+          "custoPorSolicitacaoBrl": 0.006571958399999999,
+          "custoApiSemanaBrl": 3.2859792,
+          "custoTotalSemanaBrl": 3.2859792,
+          "resolucoesSemana": 425,
+          "custoPorResolucaoBrl": 0.007731715764705882,
+          "beneficioSemanaBrl": 0,
+          "roi": -1
+        }
+      ]
+    },
+    {
+      "usuarios": 1000,
+      "casos": [
+        {
+          "caso": "melhor",
+          "solicitacoesSemana": 5000,
+          "custoPorSolicitacaoBrl": 0.0015115504320000002,
+          "custoApiSemanaBrl": 7.557752160000001,
+          "custoTotalSemanaBrl": 7.557752160000001,
+          "resolucoesSemana": 4250,
+          "custoPorResolucaoBrl": 0.001778294625882353,
+          "beneficioSemanaBrl": 0,
+          "roi": -1
+        },
+        {
+          "caso": "esperado",
+          "solicitacoesSemana": 5000,
+          "custoPorSolicitacaoBrl": 0.00277939074,
+          "custoApiSemanaBrl": 13.896953700000001,
+          "custoTotalSemanaBrl": 13.896953700000001,
+          "resolucoesSemana": 4250,
+          "custoPorResolucaoBrl": 0.0032698714588235297,
+          "beneficioSemanaBrl": 0,
+          "roi": -1
+        },
+        {
+          "caso": "pior",
+          "solicitacoesSemana": 5000,
+          "custoPorSolicitacaoBrl": 0.006571958399999999,
+          "custoApiSemanaBrl": 32.859792,
+          "custoTotalSemanaBrl": 32.859792,
+          "resolucoesSemana": 4250,
+          "custoPorResolucaoBrl": 0.007731715764705882,
+          "beneficioSemanaBrl": 0,
+          "roi": -1
+        }
+      ]
+    }
+  ]
+}
