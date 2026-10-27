@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/card-readme.png" alt="Card do repositório" width="100%">
+</p>
+
 # EcoCiente IA
 
 [English](README-en.md) · **Português (Brasil)**
