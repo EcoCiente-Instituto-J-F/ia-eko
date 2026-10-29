@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 import re
 import time
+from html.parser import HTMLParser
 from pathlib import Path
 
 import httpx
-from bs4 import BeautifulSoup
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
+from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.api.schemas.common import SourceResponse
@@ -38,6 +40,29 @@ class HashEmbeddings(Embeddings):
 
     def embed_query(self, text: str) -> list[float]:
         return self._embed(text)
+
+
+class _TextExtractor(HTMLParser):
+    """Texto visível da página, sem script/style/noscript/svg."""
+
+    _SKIP = {"script", "style", "noscript", "svg"}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self._depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self._depth += 1
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP and self._depth:
+            self._depth -= 1
+
+    def handle_data(self, data):
+        if not self._depth:
+            self.parts.append(data)
 
 
 class RAGService:
@@ -96,10 +121,9 @@ class RAGService:
                 chunks.append(chunk)
 
         from src.core.llm import build_embeddings
-        from langchain_community.vectorstores import FAISS
 
         embeddings = build_embeddings(self.settings)
-        self.vector_store = await self._to_thread(FAISS.from_documents, chunks, embeddings)
+        self.vector_store = await asyncio.to_thread(InMemoryVectorStore.from_documents, chunks, embeddings)
         self.documents_count = len(chunks)
         RAG_LATENCY.labels(operation="startup_index").observe(time.perf_counter() - started)
 
@@ -107,7 +131,7 @@ class RAGService:
         self.vector_store = None
 
     async def _read_local(self, path: Path) -> str:
-        return await self._to_thread(path.read_text, encoding="utf-8")
+        return await asyncio.to_thread(path.read_text, encoding="utf-8")
 
     async def _fetch_external(self) -> str:
         timeout = httpx.Timeout(float(self.settings.external_timeout_seconds))
@@ -115,17 +139,17 @@ class RAGService:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
             response = await client.get(self.settings.external_source_url)
             response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        for tag in soup(["script", "style", "noscript", "svg"]):
-            tag.decompose()
-        text = "\n".join(line.strip() for line in soup.get_text("\n").splitlines() if line.strip())
+        parser = _TextExtractor()
+        parser.feed(response.text)
+        parser.close()
+        text = "\n".join(line.strip() for line in "\n".join(parser.parts).splitlines() if line.strip())
         return text[:120_000]
 
     async def search(self, query: str, k: int | None = None) -> tuple[str, list[SourceResponse]]:
         if self.vector_store is None:
             return "", []
         started = time.perf_counter()
-        docs = await self._to_thread(
+        docs = await asyncio.to_thread(
             self.vector_store.similarity_search,
             query,
             k=k or self.settings.rag_top_k,
@@ -159,10 +183,3 @@ class RAGService:
         if self.vector_store is None:
             return "error"
         return "ok_external+local" if self.external_loaded else "ok_local_fallback"
-
-    @staticmethod
-    async def _to_thread(func, /, *args, **kwargs):
-        import asyncio
-        from functools import partial
-
-        return await asyncio.to_thread(partial(func, *args, **kwargs))

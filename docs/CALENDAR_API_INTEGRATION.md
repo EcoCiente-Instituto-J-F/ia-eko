@@ -12,7 +12,6 @@ Somente testes reais controlados:
 
 ```env
 APP_ENV=test
-RUN_CALENDAR_INTEGRATION_TESTS=true
 CALENDAR_TEST_BEARER_TOKEN=<token-de-teste>
 ```
 

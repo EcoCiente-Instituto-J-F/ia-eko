@@ -45,21 +45,7 @@ class MemorySummarizerService:
             time.perf_counter() - started
         )
         record_usage(provider=self.settings.llm_provider, agent="memory_summarizer", messages=[result])
-        return self._content_text(getattr(result, "content", result))
-
-    @staticmethod
-    def _content_text(content: Any) -> str:
-        if isinstance(content, str):
-            return content.strip()
-        if isinstance(content, list):
-            parts: list[str] = []
-            for item in content:
-                if isinstance(item, dict) and item.get("text"):
-                    parts.append(str(item["text"]))
-                else:
-                    parts.append(str(item))
-            return "\n".join(parts).strip()
-        return str(content).strip()
+        return (result.text if hasattr(result, "text") else str(result)).strip()
 
     async def consolidate_user_memory(self, current: str, messages: list[dict[str, Any]]) -> str:
         """Memória de longo prazo do usuário atualizada com as mensagens novas."""
@@ -87,7 +73,7 @@ class MemorySummarizerService:
         usage = record_usage(provider=self.settings.llm_provider, agent="memoria_longo_prazo", messages=[result])
         # Roda fora de uma resposta do /chat: o custo entra no ledger sem contar como solicitação.
         record_extra_cost(self.settings, usage.input_tokens, usage.output_tokens)
-        return self._content_text(getattr(result, "content", result))
+        return (result.text if hasattr(result, "text") else str(result)).strip()
 
     @staticmethod
     def _mock_user_memory(current: str, messages: list[dict[str, Any]]) -> str:

@@ -1,0 +1,63 @@
+<h2>Os dois produtos: relatório (PDF) e painel (web)</h2>
+<p class="subtitle">Mesma base de dados, dois formatos. Números abaixo são marcadores, não medições.</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">1 · Relatório estático (A4, vira PDF)</div>
+    <div class="mockup-body" style="font-size:13px;line-height:1.5">
+      <div style="border-bottom:2px solid #333;padding-bottom:6px;margin-bottom:10px">
+        <b>EcoCiente IA — Relatório de Observabilidade e Custos</b><br>
+        <span style="color:#777">Período · versão do sistema · modelo: deepseek-flash (sem thinking) · cotação US$1 = R$ 5,5884 (26/10/2026)</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <div style="flex:1;border:1px solid #bbb;padding:6px"><span class="label">Custo/semana</span><br><b style="font-size:20px">R$ —</b></div>
+        <div style="flex:1;border:1px solid #bbb;padding:6px"><span class="label">Custo/resolução</span><br><b style="font-size:20px">R$ —</b></div>
+        <div style="flex:1;border:1px solid #bbb;padding:6px"><span class="label">Latência total p95</span><br><b style="font-size:20px">— s</b></div>
+        <div style="flex:1;border:1px solid #bbb;padding:6px"><span class="label">Índice de erros</span><br><b style="font-size:20px">— %</b></div>
+      </div>
+      <b>1. Custo estimado</b> — tabela 100 × 1000 usuários, faixa pior/melhor caso (pico/fora do pico, cache)<br>
+      <b>2. Latência</b> — tempo total + barras por etapa do fluxo (guardrail → memória → orquestrador → especialista → juiz)<br>
+      <b>3. Índice de erros</b> — 5xx, bloqueios, recusas por limite, reprovação do juiz<br>
+      <b>4. Custo por resolução</b> — definição de "resolvida" + cálculo<br>
+      <b>5. ROI</b> — fórmula, benefício assumido, resultado<br>
+      <b>6. Premissas e limitações</b> — tudo que foi assumido, e como foi medido
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">2 · Painel dinâmico (web, atualiza sozinho)</div>
+    <div class="mockup-body" style="font-size:13px">
+      <div class="mock-nav">EcoCiente · ao vivo ● · rodando há —  |  Visão geral | Custos | Latência | Erros</div>
+      <div style="display:flex;gap:8px;margin:8px 0">
+        <div style="flex:1;border:1px solid #bbb;padding:6px">Requisições<br><b style="font-size:20px">—</b></div>
+        <div style="flex:1;border:1px solid #bbb;padding:6px">Custo até agora<br><b style="font-size:20px">R$ —</b></div>
+        <div style="flex:1;border:1px solid #bbb;padding:6px">Resolvidas<br><b style="font-size:20px">— %</b></div>
+        <div style="flex:1;border:1px solid #bbb;padding:6px">Erros<br><b style="font-size:20px">— %</b></div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <div class="placeholder" style="flex:2">Latência por etapa (barras animadas)</div>
+        <div class="placeholder" style="flex:1">Rotas do orquestrador</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <div class="placeholder" style="flex:1">Custo acumulado (linha)</div>
+        <div class="placeholder" style="flex:1">Simulador: 100 / 1000 usuários</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>Estilo visual do relatório — qual combina mais?</h3>
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content"><h3>Documento sóbrio</h3><p>Fundo branco, texto preto, uma cor de destaque (verde EcoCiente), tabelas finas. Parece documento de empresa, não site.</p></div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content"><h3>Técnico denso</h3><p>Mais tabelas e números por página, fonte monoespaçada nos valores, estilo relatório de SRE.</p></div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content"><h3>Executivo visual</h3><p>Poucos números grandes por página, gráficos maiores, mais respiro. Menos detalhe, leitura rápida.</p></div>
+  </div>
+</div>

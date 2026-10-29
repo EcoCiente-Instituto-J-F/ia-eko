@@ -1,0 +1,10 @@
+AVISO: usando identidade sintética; a API precisa estar em APP_ENV=test com ALLOW_TEST_IDENTITY_HEADERS=true.
+requests=200
+concurrency=10
+mean_ms=121.29
+median_ms=118.79
+p95_ms=154.70
+p99_ms=165.99
+error_rate=0.0000%
+throughput_rps=81.56
+elapsed_s=2.45

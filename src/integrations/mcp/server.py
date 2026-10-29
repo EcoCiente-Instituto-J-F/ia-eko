@@ -12,6 +12,7 @@ from src.core.config import Settings, settings
 from src.integrations.calendar.client import CalendarApiClient
 from src.integrations.calendar.exceptions import (
     CalendarApiBadRequest,
+    CalendarApiError,
     CalendarApiForbidden,
     CalendarApiNotFound,
     CalendarApiProtocolError,
@@ -97,23 +98,18 @@ def _tool_error(exc: Exception) -> CalendarToolError:
     return CalendarToolError(code="internal_error", message="Falha interna ao executar a capacidade de calendário.")
 
 
-def _build_filters(
-    *,
-    status: str | None = None,
-    data_inicio: str | None = None,
-    data_fim: str | None = None,
-    possui_recorrencia: bool | None = None,
-    condominio_id: int | None = None,
-    cooperativa_id: int | None = None,
-) -> CalendarFilters:
-    return CalendarFilters(
-        status=status,
-        data_inicio=data_inicio,
-        data_fim=data_fim,
-        possui_recorrencia=possui_recorrencia,
-        condominio_id=condominio_id,
-        cooperativa_id=cooperativa_id,
-    )
+def _authorized_call() -> tuple[CalendarToolRuntime, str] | CalendarToolError:
+    """Runtime + token, ou o erro que a tool devolve sem chamar a API."""
+    try:
+        runtime = _runtime()
+    except RuntimeError:
+        return CalendarToolError(code="authentication_required", message="Contexto autenticado do calendário ausente.")
+    if runtime.calendar_api is None:
+        return CalendarToolError(code="not_configured", message="Integração de calendário não configurada.")
+    token = _bearer_token(runtime)
+    if token is None:
+        return CalendarToolError(code="authentication_required", message="Bearer token do calendário indisponível.")
+    return runtime, token
 
 
 @mcp.tool(title="Consultar guia EcoCiente")
@@ -174,26 +170,12 @@ async def listar_agendamentos_coleta(
     A identidade, o perfil e o Bearer token não são argumentos desta tool: vêm
     exclusivamente do contexto autenticado da infraestrutura.
     """
+    auth = _authorized_call()
+    if isinstance(auth, CalendarToolError):
+        return ListarAgendamentosToolResult(ok=False, error=auth)
+    runtime, token = auth
     try:
-        runtime = _runtime()
-    except RuntimeError:
-        return ListarAgendamentosToolResult(
-            ok=False,
-            error=CalendarToolError(code="authentication_required", message="Contexto autenticado do calendário ausente."),
-        )
-    if runtime.calendar_api is None:
-        return ListarAgendamentosToolResult(
-            ok=False,
-            error=CalendarToolError(code="not_configured", message="Integração de calendário não configurada."),
-        )
-    token = _bearer_token(runtime)
-    if token is None:
-        return ListarAgendamentosToolResult(
-            ok=False,
-            error=CalendarToolError(code="authentication_required", message="Bearer token do calendário indisponível."),
-        )
-    try:
-        filters = _build_filters(
+        filters = CalendarFilters(
             status=status,
             data_inicio=data_inicio,
             data_fim=data_fim,
@@ -223,7 +205,7 @@ async def listar_agendamentos_coleta(
             ok=False,
             error=CalendarToolError(code="bad_request", message=f"Filtros inválidos: {exc}", http_status=400),
         )
-    except (CalendarApiBadRequest, CalendarApiUnauthorized, CalendarApiForbidden, CalendarApiNotFound, CalendarApiUnavailable, CalendarApiProtocolError) as exc:
+    except CalendarApiError as exc:
         return ListarAgendamentosToolResult(ok=False, error=_tool_error(exc))
 
 
@@ -236,26 +218,12 @@ async def buscar_proxima_coleta(
     cooperativa_id: int | None = None,
 ) -> BuscarProximaColetaToolResult:
     """Busca a próxima coleta do usuário autenticado, respeitando o escopo aplicado pela API Java."""
+    auth = _authorized_call()
+    if isinstance(auth, CalendarToolError):
+        return BuscarProximaColetaToolResult(ok=False, error=auth)
+    runtime, token = auth
     try:
-        runtime = _runtime()
-    except RuntimeError:
-        return BuscarProximaColetaToolResult(
-            ok=False,
-            error=CalendarToolError(code="authentication_required", message="Contexto autenticado do calendário ausente."),
-        )
-    if runtime.calendar_api is None:
-        return BuscarProximaColetaToolResult(
-            ok=False,
-            error=CalendarToolError(code="not_configured", message="Integração de calendário não configurada."),
-        )
-    token = _bearer_token(runtime)
-    if token is None:
-        return BuscarProximaColetaToolResult(
-            ok=False,
-            error=CalendarToolError(code="authentication_required", message="Bearer token do calendário indisponível."),
-        )
-    try:
-        filters = _build_filters(
+        filters = CalendarFilters(
             data_inicio=data_inicio,
             data_fim=data_fim,
             possui_recorrencia=possui_recorrencia,
@@ -269,7 +237,7 @@ async def buscar_proxima_coleta(
             ok=False,
             error=CalendarToolError(code="bad_request", message=f"Filtros inválidos: {exc}", http_status=400),
         )
-    except (CalendarApiBadRequest, CalendarApiUnauthorized, CalendarApiForbidden, CalendarApiNotFound, CalendarApiUnavailable, CalendarApiProtocolError) as exc:
+    except CalendarApiError as exc:
         return BuscarProximaColetaToolResult(ok=False, error=_tool_error(exc))
 
 

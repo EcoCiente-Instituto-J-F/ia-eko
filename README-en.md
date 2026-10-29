@@ -47,7 +47,7 @@ The full authorization rules (profile × action, not just profile × agent) live
 The project is under active development. Current state:
 
 - [x] LangGraph pipeline with input/output guardrails, memory and a correction judge
-- [x] `faq` and `educacional` specialists via RAG (FAISS + local knowledge base + an external source)
+- [x] `faq` and `educacional` specialists via RAG (in-memory vector search + local knowledge base + an external source)
 - [x] `analytics` specialist over PostgreSQL (read-only queries) and Redis rankings
 - [x] `coletas` specialist integrated with the external calendar API through MCP
 - [x] `grafo` specialist over Neo4j for paths, connections and influence between entities

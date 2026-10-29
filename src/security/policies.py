@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import unicodedata
 
 from src.security.roles import (
     COOPERATIVA,
@@ -13,6 +12,7 @@ from src.security.roles import (
     normalize_profile,
 )
 from src.shared.context import UserContext
+from src.shared.text import fold
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,15 +99,9 @@ _CLAIM_ALIASES: dict[str, set[str]] = {
 }
 
 
-def _normalized_text(value: str) -> str:
-    value = unicodedata.normalize("NFD", value.lower())
-    value = "".join(char for char in value if unicodedata.category(char) != "Mn")
-    return " ".join(value.split())
-
-
 def action_for_route(route: str, message: str) -> str:
     """Determina a ação de maior privilégio implícita pela mensagem."""
-    text = _normalized_text(message)
+    text = fold(message)
     if route == "analytics":
         # Rankings possuem regras próprias e podem ser visíveis a moradores no
         # contexto do próprio condomínio; consulta multi-condomínio continua macro.
@@ -171,7 +165,7 @@ def authorize_action(user: UserContext | None, action: str) -> AccessDecision:
     # operações sensíveis. A ausência da lista mantém a política do perfil como
     # fonte de decisão para integrações que ainda não expõem granularidade.
     if action in _SENSITIVE_ACTIONS and user.permissoes:
-        claims = {_normalized_text(item) for item in user.permissoes}
+        claims = {fold(item) for item in user.permissoes}
         aliases = _CLAIM_ALIASES.get(action, {action})
         if not claims.intersection(aliases):
             return AccessDecision(False, action, "Sua conta não recebeu a permissão necessária para esta ação.")

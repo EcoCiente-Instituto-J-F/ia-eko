@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import unicodedata
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -9,17 +8,14 @@ from zoneinfo import ZoneInfo
 import psycopg2
 
 from src.database.postgres import PostgresUnavailable
+from src.shared.text import fold
 
 logger = logging.getLogger("ecociente.analytics")
 SP_TZ = ZoneInfo("America/Sao_Paulo")
 
 
 def normalize_text(value: str | None) -> str:
-    if not value:
-        return ""
-    value = unicodedata.normalize("NFD", value.lower())
-    value = "".join(ch for ch in value if unicodedata.category(ch) != "Mn")
-    return " ".join(value.split())
+    return fold(value) if value else ""
 
 
 def resolve_period(periodo: str | None, data_inicio: str | None, data_fim: str | None) -> tuple[str | None, str | None]:

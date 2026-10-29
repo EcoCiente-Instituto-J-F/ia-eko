@@ -78,6 +78,17 @@ def test_deepseek_provider_requires_key_and_builds_without_network() -> None:
     assert model.model_name == "deepseek-chat"
 
 
+def test_unknown_and_keyless_providers_fail_clearly() -> None:
+    from src.core.config import Settings
+    from src.core.llm import ProviderConfigurationError, build_chat_model
+
+    base = Settings.from_env()
+    for overrides in ({"llm_provider": "xpto"}, {"llm_provider": "groq", "groq_api_key": None}):
+        with pytest.raises(ProviderConfigurationError):
+            build_chat_model(base.with_overrides(**overrides))
+    assert type(build_chat_model(base.with_overrides(llm_provider="ollama"))).__name__ == "ChatOllama"
+
+
 def test_current_date_goes_in_every_real_call_not_in_the_frozen_system_prompt() -> None:
     """O prompt de sistema é montado no boot; a data dentro dele congelava."""
     import asyncio

@@ -76,11 +76,12 @@ def test_analytics_qualified_columns_exist_in_delivered_schema() -> None:
 
 
 def test_env_example_matches_canonical_settings_variables() -> None:
-    import re
+    from dataclasses import fields
+
+    from src.core.config import _ENV_NAMES, Settings
 
     root = Path(__file__).resolve().parents[1]
-    config = (root / "src" / "core" / "config.py").read_text(encoding="utf-8")
-    used = set(re.findall(r'_(?:get|bool|int|float)\("([A-Z0-9_]+)"', config))
+    used = {_ENV_NAMES.get(f.name, f.name.upper()) for f in fields(Settings)}
     declared = {
         line.split("=", 1)[0].strip()
         for line in (root / ".env.example").read_text(encoding="utf-8").splitlines()

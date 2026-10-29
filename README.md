@@ -48,7 +48,7 @@ As regras completas de autorização (perfil × ação, não só perfil × agent
 O projeto está em desenvolvimento ativo:
 
 - [x] Pipeline LangGraph com guardrails de entrada/saída, memória e juiz de correção
-- [x] Especialistas `faq` e `educacional` via RAG (FAISS + base de conhecimento local + fonte externa)
+- [x] Especialistas `faq` e `educacional` via RAG (busca vetorial em memória + base de conhecimento local + fonte externa)
 - [x] Especialista `analytics` sobre PostgreSQL (consultas somente leitura) e ranking via Redis
 - [x] Especialista `coletas` integrado à API externa de calendário via MCP
 - [x] Especialista `grafo` sobre Neo4j para caminhos, conexões e influência entre entidades

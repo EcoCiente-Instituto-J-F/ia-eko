@@ -96,14 +96,11 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
 
             app.state.settings = app_settings
             app.state.authentication = authentication_service
-            app.state.calendar_api = calendar_api
-            app.state.calendar_mcp = calendar_mcp
             app.state.sessions = sessions_service
             app.state.rag = rag_service
             app.state.graph = graph_runtime
-            app.state.chat = ChatService(sessions_service, graph_runtime, quotas=quota_service, tracing=tracing)
+            app.state.chat = ChatService(sessions_service, graph_runtime, quotas=quota_service)
             app.state.quotas = quota_service
-            app.state.tracing = tracing
             app.state.rankings = ranking_service
             app.state.health_service = HealthService(
                 app_settings,
@@ -121,7 +118,6 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
                 await calendar_api.close()
             await authentication_service.close()
             await rag_service.close()
-            await sessions_service.close()
             await mongo_db.close()
             await redis_db.close()
             await neo4j_db.close()

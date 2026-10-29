@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi import Header, HTTPException, Request, status
 
-from src.agents.graph import EcoGraphRuntime
 from src.core.config import Settings
 from src.security.authentication import (
     AuthenticationService,
@@ -13,7 +12,6 @@ from src.security.authentication import (
 from src.security.roles import normalize_profile
 from src.services.chat_service import ChatService
 from src.services.health_service import HealthService
-from src.services.rag_service import RAGService
 from src.services.ranking_service import RankingService
 from src.services.session_service import SessionService
 from src.shared.context import UserContext
@@ -96,14 +94,6 @@ def get_settings(request: Request) -> Settings:
 
 def get_session_service(request: Request) -> SessionService:
     return request.app.state.sessions
-
-
-def get_rag_service(request: Request) -> RAGService:
-    return request.app.state.rag
-
-
-def get_graph(request: Request) -> EcoGraphRuntime:
-    return request.app.state.graph
 
 
 def get_chat_service(request: Request) -> ChatService:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,21 +16,15 @@ def _get(name: str, default: str | None = None) -> str | None:
     return value if value not in (None, "") else default
 
 
-def _bool(name: str, default: bool) -> bool:
-    value = _get(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on", "sim"}
-
-
-def _int(name: str, default: int) -> int:
-    value = _get(name)
-    return int(value) if value is not None else default
-
-
-def _float(name: str, default: float) -> float:
-    value = _get(name)
-    return float(value) if value is not None else default
+_TRUE = {"1", "true", "yes", "on", "sim"}
+_PARSE = {"bool": lambda v: v.strip().lower() in _TRUE, "int": int, "float": float}
+# Variáveis cujo nome não é o campo em maiúsculas.
+_ENV_NAMES = {
+    "environment": "APP_ENV",
+    "calendar_api_url": "CALENDAR_API_BASE_URL",
+    "calendar_api_timeout": "CALENDAR_API_TIMEOUT_SECONDS",
+}
+_LOWER = {"environment", "llm_provider", "embedding_provider", "storage_mode", "faq_backend", "tracing_provider"}
 
 
 @dataclass(slots=True)
@@ -78,12 +72,10 @@ class Settings:
     long_term_memory_every_turns: int = 1
     long_term_memory_max_chars: int = 2000
 
-    neo4j_uri: str| None = None
-    neo4j_username: str| None = None
-    neo4j_password: str| None = None
-    neo4j_database: str| None = None
-    aura_instanceid: str | None = None
-    aura_instancename: str | None = None
+    neo4j_uri: str | None = "bolt://localhost:7687"
+    neo4j_username: str | None = "neo4j"
+    neo4j_password: str | None = "neo4j"
+    neo4j_database: str | None = "neo4j"
 
     knowledge_base_path: str = "data/FAQ_KNOWLEDGE_BASE.md"
     enable_external_source: bool = True
@@ -95,7 +87,7 @@ class Settings:
     rag_chunk_overlap: int = 150
 
     # FAQ por busca vetorial no Qdrant: responde com a `resposta_canonica` do
-    # payload, sem LLM. "rag" = fluxo antigo (FAISS + LLM).
+    # payload, sem LLM. "rag" = fluxo antigo (RAG em memória + LLM).
     faq_backend: str = "rag"
     qdrant_url: str | None = None
     qdrant_api_key: str | None = None
@@ -121,7 +113,6 @@ class Settings:
     calendar_api_timeout: float = 10.0
     calendar_api_retries: int = 2
     calendar_test_bearer_token: str | None = None
-    run_calendar_integration_tests: bool = False
     allow_test_identity_headers: bool = False
 
     # Tracing de LLM (Langfuse/LangSmith). "none" = desligado.
@@ -203,116 +194,17 @@ class Settings:
                 raise ValueError(f"{name.upper()} deve ser finito e não negativo.")
         if self.calendar_test_bearer_token and self.environment != "test":
             raise ValueError("CALENDAR_TEST_BEARER_TOKEN só pode ser usado com APP_ENV=test.")
-        if self.run_calendar_integration_tests and self.environment != "test":
-            raise ValueError("RUN_CALENDAR_INTEGRATION_TESTS exige APP_ENV=test.")
 
     @classmethod
     def from_env(cls) -> "Settings":
-        return cls(
-            app_name=_get("APP_NAME", "EcoCiente IA API") or "EcoCiente IA API",
-            app_version=_get("APP_VERSION", "1.1.0") or "1.1.0",
-            environment=(_get("APP_ENV", "development") or "development").lower(),
-            host=_get("HOST", "127.0.0.1") or "127.0.0.1",
-            port=_int("PORT", 8000),
-            log_level=_get("LOG_LEVEL", "INFO") or "INFO",
-            llm_provider=(_get("LLM_PROVIDER", "ollama") or "ollama").lower(),
-            ollama_base_url=_get("OLLAMA_BASE_URL", "http://localhost:11434") or "http://localhost:11434",
-            ollama_model=_get("OLLAMA_MODEL", "qwen3:4b") or "qwen3:4b",
-            groq_model=_get("GROQ_MODEL", "llama-3.3-70b-versatile") or "llama-3.3-70b-versatile",
-            gemini_model=_get("GEMINI_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash",
-            groq_api_key=_get("GROQ_API_KEY"),
-            gemini_api_key=_get("GEMINI_API_KEY"),
-            deepseek_model=_get("DEEPSEEK_MODEL", "deepseek-chat") or "deepseek-chat",
-            deepseek_api_key=_get("DEEPSEEK_API_KEY"),
-            embedding_provider=(_get("EMBEDDING_PROVIDER", "ollama") or "ollama").lower(),
-            embedding_model=_get("EMBEDDING_MODEL", "nomic-embed-text") or "nomic-embed-text",
-            postgres_url=_get("POSTGRES_URL"),
-            postgres_pool_min=_int("POSTGRES_POOL_MIN", 1),
-            postgres_pool_max=_int("POSTGRES_POOL_MAX", 8),
-            postgres_connect_timeout=_int("POSTGRES_CONNECT_TIMEOUT", 3),
-            mongodb_uri=_get("MONGODB_URI", "mongodb://localhost:27017") or "mongodb://localhost:27017",
-            mongodb_database=_get("MONGODB_DATABASE", "ecociente") or "ecociente",
-            mongodb_timeout_ms=_int("MONGODB_TIMEOUT_MS", 2500),
-            redis_url=_get("REDIS_URL", "redis://localhost:6379/0") or "redis://localhost:6379/0",
-            redis_socket_timeout=_float("REDIS_SOCKET_TIMEOUT", 2.5),
-            session_ttl_seconds=_int("SESSION_TTL_SECONDS", 1800),
-            storage_mode=(_get("STORAGE_MODE", "external") or "external").lower(),
-            allow_storage_fallback=_bool("ALLOW_STORAGE_FALLBACK", True),
-            memory_max_messages=_int("MEMORY_MAX_MESSAGES", 20),
-            memory_keep_recent_messages=_int("MEMORY_KEEP_RECENT_MESSAGES", 6),
-            long_term_memory_enabled=_bool("LONG_TERM_MEMORY_ENABLED", True),
-            long_term_memory_every_turns=_int("LONG_TERM_MEMORY_EVERY_TURNS", 1),
-            long_term_memory_max_chars=_int("LONG_TERM_MEMORY_MAX_CHARS", 2000),
-            neo4j_uri=_get("NEO4J_URI", "bolt://localhost:7687") ,
-            neo4j_username=_get("NEO4J_USERNAME", "neo4j") ,
-            neo4j_password=_get("NEO4J_PASSWORD", "neo4j") ,
-            neo4j_database=_get("NEO4J_DATABASE", "neo4j") ,
-            aura_instanceid=_get("AURA_INSTANCEID", "99999xxx") ,
-            aura_instancename=_get("AURA_INSTANCENAME", "My instance") ,
-            knowledge_base_path=_get("KNOWLEDGE_BASE_PATH", "data/FAQ_KNOWLEDGE_BASE.md") or "data/FAQ_KNOWLEDGE_BASE.md",
-            enable_external_source=_bool("ENABLE_EXTERNAL_SOURCE", True),
-            external_source_url=_get("EXTERNAL_SOURCE_URL", "https://sinir.gov.br/") or "https://sinir.gov.br/",
-            external_source_title=_get("EXTERNAL_SOURCE_TITLE", "SINIR — Sistema Nacional de Informações sobre a Gestão dos Resíduos Sólidos") or "SINIR — Sistema Nacional de Informações sobre a Gestão dos Resíduos Sólidos",
-            external_timeout_seconds=_int("EXTERNAL_TIMEOUT_SECONDS", 8),
-            rag_top_k=_int("RAG_TOP_K", 4),
-            rag_chunk_size=_int("RAG_CHUNK_SIZE", 1000),
-            rag_chunk_overlap=_int("RAG_CHUNK_OVERLAP", 150),
-            faq_backend=(_get("FAQ_BACKEND", "rag") or "rag").lower(),
-            qdrant_url=_get("QDRANT_URL"),
-            qdrant_api_key=_get("QDRANT_API_KEY"),
-            qdrant_collection=_get("QDRANT_COLLECTION", "faq") or "faq",
-            qdrant_embedding_model=_get("QDRANT_EMBEDDING_MODEL", "intfloat/multilingual-e5-large") or "intfloat/multilingual-e5-large",
-            qdrant_min_score=_float("QDRANT_MIN_SCORE", 0.80),
-            qdrant_top_k=_int("QDRANT_TOP_K", 3),
-            qdrant_timeout=_float("QDRANT_TIMEOUT", 10.0),
-            faq_llm_fallback=_bool("FAQ_LLM_FALLBACK", False),
-            judge_max_corrections=_int("JUDGE_MAX_CORRECTIONS", 1),
-            a2a_public_url=_get("A2A_PUBLIC_URL", "http://127.0.0.1:8000/a2a/jsonrpc/") or "http://127.0.0.1:8000/a2a/jsonrpc/",
-            a2a_remote_agent_url=_get("A2A_REMOTE_AGENT_URL"),
-            a2a_remote_timeout_seconds=_float("A2A_REMOTE_TIMEOUT_SECONDS", 8.0),
-            auth_api_url=_get("AUTH_API_URL"),
-            auth_api_timeout=_float("AUTH_API_TIMEOUT", 8.0),
-            auth_api_retries=_int("AUTH_API_RETRIES", 2),
-            calendar_api_url=_get("CALENDAR_API_BASE_URL"),
-            calendar_api_timeout=_float("CALENDAR_API_TIMEOUT_SECONDS", 10.0),
-            calendar_api_retries=_int("CALENDAR_API_RETRIES", 2),
-            calendar_test_bearer_token=_get("CALENDAR_TEST_BEARER_TOKEN"),
-            run_calendar_integration_tests=_bool("RUN_CALENDAR_INTEGRATION_TESTS", False),
-            allow_test_identity_headers=_bool("ALLOW_TEST_IDENTITY_HEADERS", False),
-            tracing_provider=(_get("TRACING_PROVIDER", "none") or "none").lower(),
-            tracing_mask_pii=_bool("TRACING_MASK_PII", True),
-            tracing_in_mock=_bool("TRACING_IN_MOCK", False),
-            langfuse_public_key=_get("LANGFUSE_PUBLIC_KEY"),
-            langfuse_secret_key=_get("LANGFUSE_SECRET_KEY"),
-            langfuse_host=_get("LANGFUSE_HOST", "http://localhost:3000") or "http://localhost:3000",
-            langsmith_api_key=_get("LANGSMITH_API_KEY"),
-            langsmith_project=_get("LANGSMITH_PROJECT", "ecociente-ia") or "ecociente-ia",
-            quota_enabled=_bool("QUOTA_ENABLED", True),
-            quota_timezone=_get("QUOTA_TIMEZONE", "America/Sao_Paulo") or "America/Sao_Paulo",
-            quota_usuario_comum=_int("QUOTA_USUARIO_COMUM", 20),
-            quota_morador_residencial=_int("QUOTA_MORADOR_RESIDENCIAL", 40),
-            quota_usuario_comercial=_int("QUOTA_USUARIO_COMERCIAL", 50),
-            quota_cooperativa=_int("QUOTA_COOPERATIVA", 80),
-            quota_sindico_residencial=_int("QUOTA_SINDICO_RESIDENCIAL", 100),
-            quota_sindico_comercial=_int("QUOTA_SINDICO_COMERCIAL", 100),
-            quota_no_compaction_profiles=_get("QUOTA_NO_COMPACTION_PROFILES", "USUARIO_COMUM") or "",
-            rate_limit_per_minute=_int("RATE_LIMIT_PER_MINUTE", 10),
-            llm_price_input_per_1m_brl=_float("LLM_PRICE_INPUT_PER_1M_BRL", 0.0),
-            llm_price_output_per_1m_brl=_float("LLM_PRICE_OUTPUT_PER_1M_BRL", 0.0),
-            cost_requests_per_user_week=_float("COST_REQUESTS_PER_USER_WEEK", 5.0),
-            cost_infra_weekly_brl_100=_float("COST_INFRA_WEEKLY_BRL_100", 0.0),
-            cost_infra_weekly_brl_1000=_float("COST_INFRA_WEEKLY_BRL_1000", 0.0),
-            cost_benefit_per_resolution_brl=_float("COST_BENEFIT_PER_RESOLUTION_BRL", 0.0),
-            session_lock_ttl_seconds=_float("SESSION_LOCK_TTL_SECONDS", 30.0),
-            session_lock_wait_seconds=_float("SESSION_LOCK_WAIT_SECONDS", 45.0),
-            run_integration_tests=_bool("RUN_INTEGRATION_TESTS", False),
-            test_postgres_url=_get("TEST_POSTGRES_URL"),
-            test_mongodb_uri=_get("TEST_MONGODB_URI"),
-            test_mongodb_database=_get("TEST_MONGODB_DATABASE", "ecociente_test") or "ecociente_test",
-            test_redis_url=_get("TEST_REDIS_URL"),
-            test_redis_prefix=_get("TEST_REDIS_PREFIX", "ecociente:test:") or "ecociente:test:",
-
-        )
+        values: dict[str, object] = {}
+        for f in fields(cls):
+            raw = _get(_ENV_NAMES.get(f.name, f.name.upper()))
+            if raw is None:
+                continue
+            value = _PARSE.get(f.type, str)(raw)
+            values[f.name] = value.lower() if f.name in _LOWER else value
+        return cls(**values)
 
     def with_overrides(self, **changes: object) -> "Settings":
         return replace(self, **changes)

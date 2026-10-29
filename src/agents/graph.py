@@ -317,7 +317,7 @@ class EcoGraphRuntime:
             "agent": "coletas",
         }
 
-    async def analytics(self, state: EcoState) -> dict[str, Any]:
+    async def _tool_specialist(self, state: EcoState, name: str, instruction: str, invoke) -> dict[str, Any]:
         started = time.perf_counter()
         user_context = state.get("user_context")
         safe_user_context = user_context.for_agent() if user_context else {}
@@ -328,39 +328,42 @@ class EcoGraphRuntime:
             f"CONDOMINIO_ID={state.get('condominio_id')}\n"
             f"CONTEXTO_IDENTIDADE={json.dumps(safe_user_context, ensure_ascii=False, default=str)}\n"
             f"CONTEXTO_MEMORIA=\n{self._format_memory_context(state.get('memory_context', {}))}\n"
-            "Use exclusivamente ferramentas autorizadas e não invente números quando a consulta falhar."
+            f"{instruction}"
         )
         with tool_scope(user_context):
-            answer, evidence = await self.agents.run_analytics(prompt)
+            answer, evidence = await invoke(prompt)
         return {
-            **self._mark(state, "analytics", started),
+            **self._mark(state, name, started),
             "candidate_answer": answer,
             "sources": [],
             "evidence": evidence,
-            "agent": "analytics",
+            "agent": name,
         }
 
-    async def grafo(self, state: EcoState) -> dict[str, Any]:
-        started = time.perf_counter()
-        user_context = state.get("user_context")
-        safe_user_context = user_context.for_agent() if user_context else {}
-        prompt = (
-            f"PERGUNTA_ORIGINAL={state['mensagem']}\n"
-            f"USUARIO_ID={state['usuario_id']}\n"
-            f"PERFIL={state.get('perfil', 'nao_informado')}\n"
-            f"CONDOMINIO_ID={state.get('condominio_id')}\n"
-            f"CONTEXTO_IDENTIDADE={json.dumps(safe_user_context, ensure_ascii=False, default=str)}\n"
-            f"CONTEXTO_MEMORIA=\n{self._format_memory_context(state.get('memory_context', {}))}\n"
-            "Use exclusivamente ferramentas autorizadas e nunca invente uma conexão que a tool não confirmou."
+    async def analytics(self, state: EcoState) -> dict[str, Any]:
+        # `run_analytics` é lido na hora da chamada: os testes o substituem depois da montagem.
+        return await self._tool_specialist(
+            state, "analytics",
+            "Use exclusivamente ferramentas autorizadas e não invente números quando a consulta falhar.",
+            self.agents.run_analytics,
         )
-        with tool_scope(user_context):
-            answer, evidence = await self.agents.invoke_with_tools("grafo", prompt)
+
+    async def grafo(self, state: EcoState) -> dict[str, Any]:
+        return await self._tool_specialist(
+            state, "grafo",
+            "Use exclusivamente ferramentas autorizadas e nunca invente uma conexão que a tool não confirmou.",
+            lambda prompt: self.agents.invoke_with_tools("grafo", prompt),
+        )
+
+    @staticmethod
+    def _bypass(candidate: str, motivo: str) -> dict[str, Any]:
+        ok = bool(candidate.strip())
         return {
-            **self._mark(state, "grafo", started),
-            "candidate_answer": answer,
-            "sources": [],
-            "evidence": evidence,
-            "agent": "grafo",
+            "aprovado": ok,
+            "motivo": motivo,
+            "categoria": "aprovado" if ok else "resposta_vazia",
+            "necessita_correcao": False,
+            "resposta_censurada": None,
         }
 
     async def juiz_saida(self, state: EcoState) -> dict[str, Any]:
@@ -369,23 +372,11 @@ class EcoGraphRuntime:
         if state.get("faq_canonica"):
             # Resposta canônica do Qdrant: texto curado e já revisado na base, não
             # gerado por LLM. Passar pelo juiz LLM anularia a economia da busca.
-            decision = {
-                "aprovado": bool(candidate.strip()),
-                "motivo": "resposta_canonica_qdrant",
-                "categoria": "aprovado" if candidate.strip() else "resposta_vazia",
-                "necessita_correcao": False,
-                "resposta_censurada": None,
-            }
+            decision = self._bypass(candidate, "resposta_canonica_qdrant")
         elif state.get("route") == "coletas":
             # A resposta é derivada diretamente da API externa; evitar uma
             # segunda execução por correção impede mutações duplicadas.
-            decision = {
-                "aprovado": bool(candidate.strip()),
-                "motivo": "resposta_verificada_por_calendario",
-                "categoria": "aprovado" if candidate.strip() else "resposta_vazia",
-                "necessita_correcao": False,
-                "resposta_censurada": None,
-            }
+            decision = self._bypass(candidate, "resposta_verificada_por_calendario")
         elif not candidate.strip():
             decision = {
                 "aprovado": False,

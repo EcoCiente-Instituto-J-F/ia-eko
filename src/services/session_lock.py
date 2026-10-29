@@ -34,11 +34,14 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Callable
 
+from redis.exceptions import RedisError
+
 from src.observability.metrics import SESSION_LOCK_EVENTS, SESSION_LOCK_WAIT
 
 logger = logging.getLogger("ecociente.session_lock")
 
 LOCK_KEY_PREFIX = "session:lock:"
+_REDIS_ERRORS = (OSError, TimeoutError, ConnectionError, RedisError)
 
 # KEYS[1]=chave, ARGV[1]=token. Só apaga se o lock ainda for nosso.
 _RELEASE = """
@@ -66,17 +69,6 @@ class SessionBusy(RuntimeError):
         )
         self.session_id = session_id
         self.waited_seconds = waited_seconds
-
-
-def _redis_errors() -> tuple[type[BaseException], ...]:
-    errors: list[type[BaseException]] = [OSError, TimeoutError, ConnectionError]
-    try:
-        from redis.exceptions import RedisError
-
-        errors.append(RedisError)
-    except ImportError:  # pragma: no cover - redis é dependência base
-        pass
-    return tuple(errors)
 
 
 class _AcquireTimeout(Exception):
@@ -201,7 +193,7 @@ class SessionLockManager:
         while True:
             try:
                 acquired = await redis.set(key, token, nx=True, px=self.ttl_ms)
-            except _redis_errors():
+            except _REDIS_ERRORS:
                 logger.warning("session_lock_redis_error", extra={"session_id": session_id}, exc_info=True)
                 SESSION_LOCK_EVENTS.labels(outcome="redis_error").inc()
                 return None
@@ -223,7 +215,7 @@ class SessionLockManager:
             await asyncio.sleep(interval)
             try:
                 renewed = await redis.eval(_RENEW, 1, key, token, self.ttl_ms)
-            except _redis_errors():
+            except _REDIS_ERRORS:
                 # Tenta de novo no próximo ciclo; o TTL ainda cobre ~2 ciclos.
                 logger.warning("session_lock_renew_error", extra={"session_id": session_id}, exc_info=True)
                 continue
@@ -238,7 +230,7 @@ class SessionLockManager:
     async def _release(self, redis: Any, session_id: str, token: str) -> None:
         try:
             await redis.eval(_RELEASE, 1, self.key(session_id), token)
-        except _redis_errors():
+        except _REDIS_ERRORS:
             # O TTL libera a sessão sozinho.
             logger.warning("session_lock_release_error", extra={"session_id": session_id}, exc_info=True)
 

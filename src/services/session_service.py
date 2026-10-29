@@ -8,6 +8,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol
 
+from pymongo.errors import PyMongoError
+from redis.exceptions import RedisError
+
 from src.core.config import Settings
 
 if TYPE_CHECKING:
@@ -22,6 +25,7 @@ logger = logging.getLogger("ecociente.sessions")
 
 CONVERSATION_ROLES = {"user", "assistant"}
 COMPACTION_CAS_RETRIES = 3
+_STORAGE_ERRORS = (TimeoutError, OSError, PyMongoError, RedisError)
 
 
 class SessionError(RuntimeError):
@@ -50,23 +54,6 @@ class MemorySummarizer(Protocol):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _storage_error_types() -> tuple[type[BaseException], ...]:
-    errors: list[type[BaseException]] = [TimeoutError, OSError]
-    try:
-        from pymongo.errors import PyMongoError
-
-        errors.append(PyMongoError)
-    except ImportError:
-        pass
-    try:
-        from redis.exceptions import RedisError
-
-        errors.append(RedisError)
-    except ImportError:
-        pass
-    return tuple(errors)
 
 
 def count_conversation_messages(messages: list[dict[str, Any]]) -> int:
@@ -116,7 +103,7 @@ class SessionService:
             await self.mongo.start(self.settings)
             await self.redis_db.start(self.settings)
             await self.mongo.ensure_indexes()
-        except _storage_error_types() as exc:
+        except _STORAGE_ERRORS as exc:
             if not self.settings.allow_storage_fallback:
                 await self.mongo.close()
                 await self.redis_db.close()
@@ -125,10 +112,6 @@ class SessionService:
             self.mode = "memory"
             await self.mongo.close()
             await self.redis_db.close()
-
-    async def close(self) -> None:
-        # Os clientes pertencem ao lifespan da aplicação e são fechados lá.
-        return None
 
     def _new_document(self, usuario_id: int) -> dict[str, Any]:
         now = _now()
@@ -468,10 +451,10 @@ class SessionService:
         result = {"mongodb": "error", "redis": "error"}
         try:
             result["mongodb"] = "ok" if await asyncio.wait_for(self.mongo.ping(), timeout=1.5) else "error"
-        except _storage_error_types():
+        except _STORAGE_ERRORS:
             result["mongodb"] = "error"
         try:
             result["redis"] = "ok" if await asyncio.wait_for(self.redis_db.ping(), timeout=1.5) else "error"
-        except _storage_error_types():
+        except _STORAGE_ERRORS:
             result["redis"] = "error"
         return result

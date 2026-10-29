@@ -40,7 +40,3 @@ class UserContext:
             permissoes=list(self.permissoes),
             cooperativa_id=self.cooperativa_id,
         )
-
-    def has_permission(self, permission: str) -> bool:
-        normalized = permission.strip().lower()
-        return normalized in {item.strip().lower() for item in self.permissoes}
