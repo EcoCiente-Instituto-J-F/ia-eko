@@ -16,6 +16,7 @@ NODE_LABELS: tuple[str, ...] = (
 
 RELATIONSHIP_TYPES: tuple[str, ...] = (
     "MORA_EM",
+    "MORA_NA",
     "PERTENCE_A",
     "REPRESENTADA_POR",
     "CRIOU",
