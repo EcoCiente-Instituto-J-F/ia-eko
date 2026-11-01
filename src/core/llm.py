@@ -40,6 +40,9 @@ def build_chat_model(settings: Settings) -> Any | None:
         if not getattr(settings, key_field):
             raise ProviderConfigurationError(f"{key_field.upper()} é obrigatória quando LLM_PROVIDER={provider}.")
         kwargs[_KEY_KWARG.get(provider, "api_key")] = getattr(settings, key_field)
+    if provider == "deepseek":
+        # a API da DeepSeek liga o thinking por padrão; aqui ele só adiciona latência e custo
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     try:
         return init_chat_model(getattr(settings, model_field), model_provider=model_provider, **kwargs)
     except ImportError as exc:

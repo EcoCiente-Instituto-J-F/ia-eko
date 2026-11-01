@@ -41,7 +41,7 @@ class Settings:
     ollama_model: str = "qwen3:4b"
     groq_model: str = "llama-3.3-70b-versatile"
     gemini_model: str = "gemini-2.5-flash"
-    deepseek_model: str = "deepseek-chat"
+    deepseek_model: str = "deepseek-flash"
     groq_api_key: str | None = None
     gemini_api_key: str | None = None
     deepseek_api_key: str | None = None
