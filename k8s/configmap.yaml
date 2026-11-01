@@ -46,9 +46,11 @@ data:
   SESSION_LOCK_TTL_SECONDS: "30"
   SESSION_LOCK_WAIT_SECONDS: "45"
 
-  # FAQ: rag (RAG em memória + LLM) ou qdrant (resposta canônica, sem LLM; exige carga
-  # com python -m src.etl.populate_qdrant e ~2,5 GB de memória para o modelo).
-  FAQ_BACKEND: "rag"
+  # Base de conhecimento: qdrant (padrão; FAQ sem LLM + trechos do RAG) ou rag (tudo em
+  # memória + LLM). Com qdrant, QDRANT_URL e QDRANT_API_KEY ficam no Secret e a carga é
+  # manual (python -m src.etl.populate_qdrant); a API carrega o modelo (~2,5 GB), por isso
+  # k8s/ia-deployment.yaml usa requests.memory 2560Mi e limits.memory 3584Mi.
+  FAQ_BACKEND: "qdrant"
 
   TRACING_PROVIDER: "none"
   TRACING_MASK_PII: "true"
