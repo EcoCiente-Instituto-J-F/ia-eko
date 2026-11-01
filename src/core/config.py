@@ -36,7 +36,7 @@ class Settings:
     port: int = 8000
     log_level: str = "INFO"
 
-    llm_provider: str = "ollama"
+    llm_provider: str = "deepseek"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3:4b"
     groq_model: str = "llama-3.3-70b-versatile"
@@ -86,9 +86,10 @@ class Settings:
     rag_chunk_size: int = 1000
     rag_chunk_overlap: int = 150
 
-    # FAQ por busca vetorial no Qdrant: responde com a `resposta_canonica` do
-    # payload, sem LLM. "rag" = fluxo antigo (RAG em memória + LLM).
-    faq_backend: str = "rag"
+    # Base de conhecimento no Qdrant (padrão): FAQ responde com a `resposta_canonica`
+    # do payload, sem LLM, e o RAG lê os trechos da mesma coleção. A carga é manual
+    # (python -m src.etl.populate_qdrant). "rag" = tudo em memória (testes e dev sem Qdrant).
+    faq_backend: str = "qdrant"
     qdrant_url: str | None = None
     qdrant_api_key: str | None = None
     qdrant_collection: str = "faq"

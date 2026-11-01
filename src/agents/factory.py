@@ -147,7 +147,7 @@ class AgentSuite:
             return "STATUS=aprovado\nMENSAGEM_ORIGINAL=[mantida]"
         if agent_name == "orquestrador":
             message_lower = self._extract_mensagem_original(prompt).lower() or lower
-            if any(w in message_lower for w in ["caminho entre", "conexão entre", "conexao entre", "conectado a", "influenciam a reciclagem", "quem influencia"]):
+            if any(w in message_lower for w in ["caminho entre", "conexão entre", "conexao entre", "conectado a", "influenciam a reciclagem", "quem influencia", "cursos recomendados", "recomendados para mim"]):
                 route = "grafo"
             elif any(w in message_lower for w in ["ranking", "desempenho", "mais reciclado", "estatística", "estatistica", "dashboard", "top 10", "evoluiu"]):
                 route = "analytics"

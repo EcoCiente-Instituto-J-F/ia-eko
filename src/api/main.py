@@ -59,12 +59,18 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
         calendar_mcp = CalendarMcpClient(calendar_api, app_settings)
 
         sessions_service = SessionService(app_settings, mongo_db, redis_db)
-        rag_service = RAGService(app_settings)
+        # FAQ e trechos do RAG por busca vetorial no Qdrant. Cliente e modelo de
+        # embedding são criados no primeiro uso, então isto não conecta nem
+        # baixa nada aqui. O RAG recebe o mesmo serviço: um modelo carregado só.
+        faq_search = QdrantFaqService(app_settings) if app_settings.faq_backend == "qdrant" else None
+        if faq_search is not None and not app_settings.qdrant_url:
+            logging.getLogger(__name__).warning(
+                "FAQ_BACKEND=qdrant sem QDRANT_URL: FAQ e RAG vão responder sem evidência; "
+                "configure QDRANT_URL ou use FAQ_BACKEND=rag"
+            )
+        rag_service = RAGService(app_settings, qdrant=faq_search)
         # Langfuse/LangSmith opcional; TRACING_PROVIDER=none não importa nada.
         tracing = TracingService(app_settings)
-        # FAQ por busca vetorial (sem LLM). Cliente e modelo de embedding são
-        # criados no primeiro uso, então isto não conecta nem baixa nada aqui.
-        faq_search = QdrantFaqService(app_settings) if app_settings.faq_backend == "qdrant" else None
 
         try:
             await asyncio.to_thread(postgres_db.start, app_settings)
