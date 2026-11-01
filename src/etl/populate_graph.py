@@ -22,14 +22,15 @@ Nós e relacionamentos
 Relação                                       Origem                           Incremental por
 ============================================  ===============================  ==========================================
 (Usuario)-[:MORA_EM]->(Condominio)            tb_moradores                     usuário novo OU vínculo auditado
+(Usuario)-[:MORA_NA]->(Torre)                 tb_moradores.torre_id            igual ao MORA_EM
 (Usuario)-[:PERTENCE_A {trust_score…}]->(C)   tb_rel_usuarios_condominios      auditoria do vínculo (todo UPDATE)
                                               (só aprovado e sem data_saida)
 (Torre)-[:PERTENCE_A]->(Condominio)           tb_torres.condominio_id          — (dimensão pequena)
 (Cooperativa)-[:REPRESENTADA_POR]->(Usuario)  tb_cooperativas.usuario_id       data_cadastro
 (Usuario)-[:CRIOU]->(Postagem)                tb_postagens                     data_postagem OU resolvido_em
 (Postagem)-[:NO_CONDOMINIO|NA_TORRE|DA_CATEGORIA]  tb_postagens                data_postagem OU resolvido_em
-(Usuario)-[:VALIDOU {peso, tipo}]->(Postagem)  tb_rel_votos_postagens (sem motivo)  votado_em
-(Usuario)-[:DENUNCIOU {peso, motivo}]->(P)     tb_rel_votos_postagens (com motivo)  votado_em
+(Usuario)-[:VALIDOU {peso, tipo}]->(Postagem)  tb_rel_votos_postagens (tipo aprovar)  votado_em
+(Usuario)-[:DENUNCIOU {peso, motivo}]->(P)     tb_rel_votos_postagens (tipo denunciar)  votado_em
 (Usuario)-[:APROVADO_EM]->(Curso)             tb_tentativas_quiz + tb_quizzes  pares (usuário, curso) com tentativa nova
 (Usuario)-[:TEM_DIFICULDADE_EM]->(Curso)      tb_tentativas_quiz + tb_quizzes  pares (usuário, curso) com tentativa nova
 (Curso)-[:RECOMENDADO_PARA]->(Usuario)        calculada no próprio grafo       só no full (derivada; consulta pesada)
@@ -121,15 +122,14 @@ def _float(value: Any) -> float | None:
 class Step:
     """Um passo de carga: SQL de extração + cláusula Cypher de MERGE.
 
-    ``incremental_sql`` recebe o mesmo número de ``%s`` que ``params_per_since``
-    (todos preenchidos com o início da janela). ``None`` = sempre relido inteiro.
+    ``incremental_sql`` pode ter vários ``%s``, todos preenchidos com o início
+    da janela. ``None`` = sempre relido inteiro.
     """
 
     name: str
     full_sql: str
     merge: str
     incremental_sql: str | None = None
-    params_per_since: int = 1
     transform: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 
 
@@ -275,7 +275,6 @@ NODE_STEPS: tuple[Step, ...] = (
         JOIN tb_lkp_status_validacoes_postagens s ON s.id_status_validacao = p.status_validacao_id
         WHERE {_POSTAGENS_WINDOW}
         """,
-        params_per_since=3,
         transform=_postagem,
     ),
 )
@@ -283,19 +282,27 @@ NODE_STEPS: tuple[Step, ...] = (
 EDGE_STEPS: tuple[Step, ...] = (
     Step(
         "mora_em",
-        "SELECT m.usuario_id, m.condominio_id FROM tb_moradores m",
+        "SELECT m.usuario_id, m.condominio_id, m.torre_id FROM tb_moradores m",
         # tb_moradores tem UNIQUE(usuario_id): um MORA_EM por usuário. Se ele
-        # mudou de condomínio, a aresta antiga sai na mesma linha.
+        # mudou de condomínio, a aresta antiga sai na mesma linha. O mesmo vale
+        # para MORA_NA (torre): troca ou sai quando torre_id muda ou fica NULL.
         "MATCH (u:Usuario {id: row.usuario_id}), (c:Condominio {id: row.condominio_id}) "
         "OPTIONAL MATCH (u)-[old:MORA_EM]->(antigo:Condominio) WHERE antigo <> c "
-        "WITH u, c, collect(old) AS antigas "
+        "WITH row, u, c, collect(old) AS antigas "
         "FOREACH (x IN antigas | DELETE x) "
-        "MERGE (u)-[:MORA_EM]->(c)",
+        "MERGE (u)-[:MORA_EM]->(c) "
+        "WITH row, u "
+        "OPTIONAL MATCH (u)-[old_t:MORA_NA]->(antiga:Torre) WHERE row.torre_id IS NULL OR antiga.id <> row.torre_id "
+        "WITH row, u, collect(old_t) AS antigas_t "
+        "FOREACH (x IN antigas_t | DELETE x) "
+        "WITH row, u "
+        "OPTIONAL MATCH (t:Torre {id: row.torre_id}) "
+        "FOREACH (_ IN CASE WHEN t IS NULL THEN [] ELSE [1] END | MERGE (u)-[:MORA_NA]->(t))",
         # tb_moradores não tem data nem auditoria. No incremental vão os
         # moradores novos (registro_em) e os que tiveram o vínculo com o
         # condomínio alterado (auditoria); o resto é reconciliado no full diário.
         incremental_sql=f"""
-        SELECT m.usuario_id, m.condominio_id
+        SELECT m.usuario_id, m.condominio_id, m.torre_id
         FROM tb_moradores m
         JOIN tb_usuarios u ON u.id_usuario = m.usuario_id
         WHERE u.registro_em >= %s
@@ -304,7 +311,6 @@ EDGE_STEPS: tuple[Step, ...] = (
                 WHERE r.id_usuario_condominio IN ({_VINCULOS_ALTERADOS})
            )
         """,
-        params_per_since=2,
     ),
     Step(
         "pertence_a_usuario_condominio",
@@ -369,7 +375,6 @@ EDGE_STEPS: tuple[Step, ...] = (
         SELECT p.id_postagem AS postagem_id, p.usuario_id, p.condominio_id, p.torre_id, p.categoria_id
         FROM tb_postagens p WHERE {_POSTAGENS_WINDOW}
         """,
-        params_per_since=3,
     ),
     Step(
         "validou",
@@ -377,7 +382,7 @@ EDGE_STEPS: tuple[Step, ...] = (
         SELECT v.usuario_id, v.postagem_id, v.peso_aplicado AS peso, t.nome_tipo AS tipo
         FROM tb_rel_votos_postagens v
         JOIN tb_lkp_tipos_votos_postagens t ON t.id_tipo_voto = v.tipo_voto_id
-        WHERE v.motivo_denuncia_id IS NULL
+        WHERE t.nome_tipo = 'aprovar'
         """,
         # Um voto por (postagem, usuário): se virou validação, a denúncia antiga sai.
         "MATCH (u:Usuario {id: row.usuario_id}), (p:Postagem {id: row.postagem_id}) "
@@ -388,7 +393,7 @@ EDGE_STEPS: tuple[Step, ...] = (
         SELECT v.usuario_id, v.postagem_id, v.peso_aplicado AS peso, t.nome_tipo AS tipo
         FROM tb_rel_votos_postagens v
         JOIN tb_lkp_tipos_votos_postagens t ON t.id_tipo_voto = v.tipo_voto_id
-        WHERE v.motivo_denuncia_id IS NULL AND v.votado_em >= %s
+        WHERE t.nome_tipo = 'aprovar' AND v.votado_em >= %s
         """,
     ),
     Step(
@@ -396,7 +401,9 @@ EDGE_STEPS: tuple[Step, ...] = (
         """
         SELECT v.usuario_id, v.postagem_id, v.peso_aplicado AS peso, m.descricao AS motivo
         FROM tb_rel_votos_postagens v
-        JOIN tb_lkp_motivos_denuncia m ON m.id_motivo_denuncia = v.motivo_denuncia_id
+        JOIN tb_lkp_tipos_votos_postagens t ON t.id_tipo_voto = v.tipo_voto_id
+        LEFT JOIN tb_lkp_motivos_denuncia m ON m.id_motivo_denuncia = v.motivo_denuncia_id
+        WHERE t.nome_tipo = 'denunciar'
         """,
         "MATCH (u:Usuario {id: row.usuario_id}), (p:Postagem {id: row.postagem_id}) "
         "OPTIONAL MATCH (u)-[old:VALIDOU]->(p) "
@@ -405,8 +412,9 @@ EDGE_STEPS: tuple[Step, ...] = (
         incremental_sql="""
         SELECT v.usuario_id, v.postagem_id, v.peso_aplicado AS peso, m.descricao AS motivo
         FROM tb_rel_votos_postagens v
-        JOIN tb_lkp_motivos_denuncia m ON m.id_motivo_denuncia = v.motivo_denuncia_id
-        WHERE v.votado_em >= %s
+        JOIN tb_lkp_tipos_votos_postagens t ON t.id_tipo_voto = v.tipo_voto_id
+        LEFT JOIN tb_lkp_motivos_denuncia m ON m.id_motivo_denuncia = v.motivo_denuncia_id
+        WHERE t.nome_tipo = 'denunciar' AND v.votado_em >= %s
         """,
     ),
     Step(
@@ -512,7 +520,7 @@ class GraphPopulator:
 
     async def _run_step(self, step: Step, since: datetime | None) -> int:
         if since is not None and step.incremental_sql is not None:
-            sql, params = step.incremental_sql, (since,) * step.params_per_since
+            sql, params = step.incremental_sql, (since,) * step.incremental_sql.count("%s")
         else:
             sql, params = step.full_sql, ()
         query = f"UNWIND $rows AS row {step.merge}"
@@ -527,13 +535,7 @@ class GraphPopulator:
         return total
 
     def _batches(self, sql: str, params: tuple = ()) -> Iterator[list[dict[str, Any]]]:
-        iter_batches = getattr(self.postgres, "iter_batches", None)
-        if iter_batches is not None:
-            yield from iter_batches(sql, params, _BATCH_SIZE)
-            return
-        rows = self.postgres.fetch_all(sql, params)
-        for start in range(0, len(rows), _BATCH_SIZE):
-            yield rows[start : start + _BATCH_SIZE]
+        yield from self.postgres.iter_batches(sql, params, _BATCH_SIZE)
 
     # ------------------------------------------------------------------ #
     # Constraints e checkpoint
@@ -613,11 +615,18 @@ class GraphPopulator:
             for batch in self._batches("SELECT m.usuario_id, m.condominio_id FROM tb_moradores m")
             for row in batch
         }
+        mora_torre = {
+            (row["usuario_id"], row["torre_id"])
+            for batch in self._batches("SELECT m.usuario_id, m.torre_id FROM tb_moradores m WHERE m.torre_id IS NOT NULL")
+            for row in batch
+        }
         sobra_pertence: list[dict[str, int]] = []
         sobra_mora: list[dict[str, int]] = []
-        async for usuario_id, pertence_grafo, mora_grafo in self._graph_memberships():
+        sobra_mora_na: list[dict[str, int]] = []
+        async for usuario_id, pertence_grafo, mora_grafo, mora_torre_grafo in self._graph_memberships():
             sobra_pertence += [{"u": usuario_id, "c": c} for c in pertence_grafo if (usuario_id, c) not in pertence]
             sobra_mora += [{"u": usuario_id, "c": c} for c in mora_grafo if (usuario_id, c) not in mora]
+            sobra_mora_na += [{"u": usuario_id, "c": c} for c in mora_torre_grafo if (usuario_id, c) not in mora_torre]
         await self._run_batched(
             "MATCH (:Usuario {id: row.u})-[r:PERTENCE_A]->(:Condominio {id: row.c}) DELETE r",
             sobra_pertence,
@@ -628,10 +637,16 @@ class GraphPopulator:
             sobra_mora,
             log_label="prune_mora_em",
         )
+        await self._run_batched(
+            "MATCH (:Usuario {id: row.u})-[r:MORA_NA]->(:Torre {id: row.c}) DELETE r",
+            sobra_mora_na,
+            log_label="prune_mora_na",
+        )
         return {
             "postagens_removidas": len(orfas),
             "pertence_a_removidas": len(sobra_pertence),
             "mora_em_removidas": len(sobra_mora),
+            "mora_na_removidas": len(sobra_mora_na),
         }
 
     async def _graph_ids(self, label: str, page: int = 10_000) -> list[Any]:
@@ -662,14 +677,16 @@ class GraphPopulator:
                 "WITH u ORDER BY u.id LIMIT $page "
                 "OPTIONAL MATCH (u)-[:PERTENCE_A]->(pc:Condominio) "
                 "OPTIONAL MATCH (u)-[:MORA_EM]->(mc:Condominio) "
-                "RETURN u.id AS id, collect(DISTINCT pc.id) AS pertence, collect(DISTINCT mc.id) AS mora "
+                "OPTIONAL MATCH (u)-[:MORA_NA]->(mt:Torre) "
+                "RETURN u.id AS id, collect(DISTINCT pc.id) AS pertence, collect(DISTINCT mc.id) AS mora, "
+                "collect(DISTINCT mt.id) AS mora_torre "
                 "ORDER BY id",
                 {"after": after, "page": page},
             )
             if not rows:
                 return
             for row in rows:
-                yield row["id"], row.get("pertence") or [], row.get("mora") or []
+                yield row["id"], row.get("pertence") or [], row.get("mora") or [], row.get("mora_torre") or []
             after = rows[-1]["id"]
             if len(rows) < page:
                 return
