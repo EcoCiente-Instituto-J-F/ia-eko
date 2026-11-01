@@ -4,10 +4,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { arte, PALETA_ROSA, PALETA_VERDE } from "./arte.mjs";
 
-const aqui = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+const aqui = dirname(fileURLToPath(import.meta.url));
 const raiz = join(aqui, "..");
 const dash = join(raiz, "dashboard");
 const dados = join(aqui, "dados");
@@ -68,8 +68,8 @@ const entreEtapas = Math.max(0, chat.media - somaNos / chat.n);
 const maxP95 = Math.max(...nos.map((n) => n.p95 ?? 0));
 
 // ───────── custo (mesmas funções do painel) ─────────
-const USD_BRL = 5.5884;
-const DATA_COTACAO = "26/10/2026";
+const USD_BRL = 5.4325;
+const DATA_COTACAO = "30/10/2026";
 const PREM = { q: 5, tokIn: 2400, tokOut: 380, resolucao: 0.85, cacheEsperado: 0.5 };
 const casos = [
   { id: "melhor", rotulo: "Melhor caso", desc: "fora do pico, 90% de cache", cache: 0.9, pico: 0 },
@@ -92,6 +92,69 @@ const cenarios = [100, 1000].map((u) => ({ usuarios: u, casos: casos.map((c) => 
 const faixa = faixaPorSolicitacaoBrl(PREM.tokIn, PREM.tokOut, USD_BRL);
 const esperado = (u) => cenarios.find((c) => c.usuarios === u).casos.find((c) => c.id === "esperado").r;
 const hipoteses = [0.05, 0.1, 0.25, 0.5, 1];
+
+// ───────── infraestrutura na AWS (Terraform de devops-infra-ecociente) ─────────
+// Uma EC2 t3.large com k3s em us-east-1, compartilhada com as APIs Java; preço de lista sob demanda.
+const HORAS_MES = 730;
+const SEMANAS_MES = HORAS_MES / 168;
+const AWS_ITENS = [
+  { rot: "EC2 t3.large (2 vCPU, 8 GiB)", conta: "730 h × US$ 0,0832", usdMes: 0.0832 * HORAS_MES },
+  { rot: "Disco EBS gp3, 30 GB", conta: "30 GB × US$ 0,08", usdMes: 30 * 0.08 },
+  { rot: "IPv4 público (Elastic IP)", conta: "730 h × US$ 0,005", usdMes: 0.005 * HORAS_MES },
+];
+const awsUsdMes = AWS_ITENS.reduce((a, i) => a + i.usdMes, 0);
+const FATIA_IA = 2560 / 8192; // requests.memory do pod da IA ÷ memória da t3.large
+const infraIaUsdMes = awsUsdMes * FATIA_IA;
+const INFRA_MES_BRL = infraIaUsdMes * USD_BRL;
+const INFRA_SEMANA_BRL = INFRA_MES_BRL / SEMANAS_MES;
+const BANCOS_PAGOS = [["MongoDB Atlas Flex", 8], ["Redis Cloud Essentials 250 MB", 5], ["Neo4j AuraDB Professional 1 GB", 65]];
+const bancosUsdMes = BANCOS_PAGOS.reduce((a, [, v]) => a + v, 0);
+
+// ───────── projeção por condomínio ─────────
+const RES = { unidades: 75, moradoresPorUnidade: 2.79, precoUnidade: 4 };
+RES.usuarios = RES.unidades * RES.moradoresPorUnidade;
+RES.receita = RES.unidades * RES.precoUnidade;
+const IND = { condominios: 1029, estoqueM2: 42_500_000, precoM2: 0.5, usuarios: 50, usuariosAlto: 500 };
+IND.area = IND.estoqueM2 / IND.condominios;
+IND.receita = IND.area * IND.precoM2;
+const apiMes = (usuarios, c) => simular(entrada(usuarios, c)).custoApiSemanaBrl * SEMANAS_MES;
+const solicitacoesMes = (usuarios) => usuarios * PREM.q * SEMANAS_MES;
+const condo = (base) => casos.map((c) => ({ ...c, api: apiMes(base.usuarios, c), alto: base.usuariosAlto ? apiMes(base.usuariosAlto, c) : null }));
+const resCasos = condo(RES);
+const indCasos = condo(IND);
+const resEsp = resCasos[1];
+const indEsp = indCasos[1];
+
+// ───────── benefício: tempo do síndico que o chatbot libera ─────────
+// Hora: salário médio de síndico (Salário.com.br, CAGED). Dedicação: Datafolha/Superlógica.
+const SIND = {
+  salario: 3214.86,
+  horasSemana: 43,
+  fatiaDuvidas: 0.25, // premissa: parte da dedicação gasta respondendo dúvidas de moradores
+  fatiaChat: 0.5, // premissa: parte dessas dúvidas que o chatbot resolve
+  fatiaProf: 0.46, // Datafolha: síndicos profissionais
+  condominiosInfra: 10, // premissa: condomínios que dividem a infra da IA
+  morador: { horas: 19, unidades: 103 },
+  prof: { horas: 32, unidades: 750 },
+};
+SIND.hora = SIND.salario / (SIND.horasSemana * SEMANAS_MES);
+const perfilSind = (p) => {
+  const hSem = (p.horas * RES.unidades) / p.unidades;
+  const hMes = hSem * SIND.fatiaDuvidas * SIND.fatiaChat * SEMANAS_MES;
+  return { hSem, hMes, benef: hMes * SIND.hora };
+};
+const sMor = perfilSind(SIND.morador);
+const sProf = perfilSind(SIND.prof);
+const mix = (k) => SIND.fatiaProf * sProf[k] + (1 - SIND.fatiaProf) * sMor[k];
+const sMed = { hSem: mix("hSem"), hMes: mix("hMes"), benef: mix("benef") };
+const resolMes = solicitacoesMes(RES.usuarios) * PREM.resolucao;
+const custoCondo = resEsp.api + INFRA_MES_BRL / SIND.condominiosInfra;
+const roiCondo = (b) => (b - custoCondo) / custoCondo;
+const BENEF_RES = sMed.benef / resolMes;
+const comBenef = (u) => simular({ ...entrada(u, casos[1]), infraSemanalBrl: INFRA_SEMANA_BRL, beneficioPorResolucaoBrl: BENEF_RES });
+const roiBack100 = comBenef(100).roi;
+const roiBack1000 = comBenef(1000).roi;
+const sinal = (r) => `${r >= 0 ? "+" : "−"}${inteiro(Math.abs(r) * 100)}%`;
 const roi = (u, h) => {
   const r = esperado(u);
   return (r.resolucoesSemana * h - r.custoTotalSemanaBrl) / r.custoTotalSemanaBrl;
@@ -143,7 +206,7 @@ const pg = (cls, corpo) => {
 const cabecaCasos = `<thead><tr><th rowspan="2" style="width:160px"></th><th colspan="3">100 usuários</th><th colspan="3">1.000 usuários</th></tr><tr>${[0, 1]
   .map(() => casos.map((c) => `<th class="v sub2">${c.rotulo.replace(" caso", "")}</th>`).join(""))
   .join("")}</tr></thead>`;
-const ULTIMA = "26/10/2026";
+const ULTIMA = "01/11/2026";
 const edu = nos.find((x) => x.id === "educacional");
 const somaMedNos = somaNos / chat.n;
 const totalRotas = Object.values(snap.rotas).reduce((a, b) => a + b, 0);
@@ -154,7 +217,7 @@ const capa = `<section class="pg">
 <div class="capa-chip">Relatório de SRE · 2026</div>
 <img class="capa-logo" src="fontes/logo-verde.svg" alt="EcoCiente">
 <div class="capa-titulo">Observabilidade,<br>custo e ROI</div>
-<div class="capa-meta"><span><b>EcoCiente IA</b> (ia-eko)</span><span>${ULTIMA}</span><span>deepseek-flash · sem thinking</span><span>US$ 1 = R$ ${fmt(USD_BRL, 4)}</span><span>código 583a8c9</span></div>
+<div class="capa-meta"><span><b>EcoCiente IA</b> (ia-eko)</span><span>${ULTIMA}</span><span>deepseek-flash · sem thinking</span><span>US$ 1 = R$ ${fmt(USD_BRL, 4)}</span><span>medições no código 583a8c9</span></div>
 ${pos(0, 330, arte({ w: 1100, h: 520, seed: 7, cols: 26, rows: 13, stops: CEU_CAPA, tiras: [[160, 0, 545, 56], [412, 140, 688, 72], [0, 290, 660, 70]], arvores: [{ x: 95, y: 470, s: 120, paleta: PALETA_ROSA }, { x: 850, y: 500, s: 70, paleta: PALETA_VERDE }, { x: 955, y: 505, s: 80, paleta: PALETA_VERDE }, { x: 1040, y: 500, s: 52, paleta: PALETA_ROSA }] }))}
 </section>`;
 
@@ -169,9 +232,9 @@ ${pos(550, 0, arte({ w: 550, h: 850, seed: 11, cols: 12, rows: 18, stops: CEU_LA
 </div>
 <div class="vidro" style="left:600px;top:236px;width:440px">
   <h3>Como ler este relatório</h3>
-  <p style="margin-bottom:16px">Cada número traz uma etiqueta de origem. Nenhum valor foi inventado: o que depende de tráfego real com a DeepSeek, de infraestrutura ou de benefício ainda não foi medido e aparece como tal.</p>
+  <p style="margin-bottom:16px">Cada número traz uma etiqueta de origem. Nenhum valor foi inventado: o que depende de tráfego real com a DeepSeek ou de benefício ainda não foi medido e aparece como tal. A infraestrutura é estimada a partir do Terraform da equipe.</p>
   <ul class="legenda">
-    <li>${tag("medido")}<span>saiu de uma execução do sistema, com o método descrito na página ${11}.</span></li>
+    <li>${tag("medido")}<span>saiu de uma execução do sistema, com o método descrito na página ${15}.</span></li>
     <li>${tag("estimado")}<span>calculado por fórmula a partir de premissas declaradas.</span></li>
     <li>${tag("premissa")}<span>valor assumido, sem medição por trás.</span></li>
     <li>${tag("amedir")}<span>ainda não existe número; o relatório indica como obtê-lo.</span></li>
@@ -187,18 +250,18 @@ const resumo = pg(
   `${abre(3, true)}
 <div class="a" style="left:60px;top:104px;width:980px"><div class="grande">O resumo em cinco números</div><p class="sub" style="margin-top:14px">Cada cartão responde a um requisito do trabalho. As páginas seguintes mostram como chegamos a cada um.</p></div>
 <div class="cinco">
-  ${cartao("g-rosa", "Custo estimado", bigBrl(brl(exp100.custoApiSemanaBrl)), "por semana · 100 usuários", `Com 1.000 usuários: <b>${brl(exp1000.custoApiSemanaBrl)}</b>. Caso esperado, só API; infraestrutura não informada.`, ["estimado"])}
+  ${cartao("g-rosa", "Custo estimado", bigBrl(brl(exp100.custoApiSemanaBrl)), "por semana · 100 usuários", `Com 1.000 usuários: <b>${brl(exp1000.custoApiSemanaBrl)}</b>. Caso esperado, só API. Infraestrutura na AWS: <b>${brl(INFRA_SEMANA_BRL)}</b> por semana.`, ["estimado"])}
   ${cartao("g-verde", "Tempo de resposta", `${fmt(b10.p95, 0)}<span class="u">ms</span>`, "p95 · 10 simultâneas", `Com o LLM simulado: é o piso do sistema. Uma por vez: ${fmt(b1.p95, 0)} ms. Com a DeepSeek: a medir.`, ["medido", "amedir"])}
   ${cartao("g-azul", "Índice de erros", `${snap.http.erros5xx}<span class="u">de</span>${inteiro(chat.n)}`, "falhas 5xx no teste", `Com o LLM simulado, que nunca falha. A taxa em produção depende da DeepSeek: a medir.`, ["medido", "amedir"])}
   ${cartao("g-rosa", "Custo por resolução", bigBrl(brl(exp100.custoPorResolucaoBrl)), "por resolução · caso esperado", `Só API, com ${pct(PREM.resolucao, 0)} de resolução assumida. Infraestrutura fora da conta.`, ["estimado"])}
-  ${cartao("g-verde", "Custo/retorno (ROI)", `<span class="menor">a definir</span>`, "benefício por resolução", `Fica positivo se cada resolução valer mais que <b>${brl(exp100.custoPorResolucaoBrl)}</b> (só API).`, ["estimado", "premissa"])}
+  ${cartao("g-verde", "Custo/retorno (ROI)", `${sinal(roiCondo(sMed.benef))}`, "por condomínio · com infra", `Benefício: tempo do síndico liberado, ${brl(sMed.benef)} por mês. Com síndico morador, ${sinal(roiCondo(sMor.benef))}; com profissional, ${sinal(roiCondo(sProf.benef))}.`, ["estimado", "premissa"])}
 </div>
 <div class="nao">
   <div class="sig"><div class="rot">O que este relatório não afirma</div><p>Três limites que valem para todos os números.</p></div>
   <ul class="lista">
     <li>Que a resposta com a DeepSeek terá a latência medida aqui: o LLM foi simulado, então os tempos são do sistema sem o modelo.</li>
     <li>Que a taxa de resolução é de ${pct(snap.chats.resolvidas / respostas, 0)}: o juiz simulado aprova tudo. A taxa das contas, ${pct(PREM.resolucao, 0)}, é uma premissa.</li>
-    <li>Nada sobre infraestrutura nem benefício por resolução: ambos estão em zero no sistema, por não terem sido informados.</li>
+    <li>Que o benefício é exato: ele depende de quanto do tempo do síndico vai em dúvidas, que não tem fonte. A infraestrutura vem do Terraform e do preço de lista da AWS.</li>
   </ul>
 </div>`,
 );
@@ -220,7 +283,7 @@ const custo1 = pg(
   <p>O custo de uma resposta vem dos tokens que ela consome e dos preços do <strong>deepseek-flash sem thinking</strong>, que mudam com o horário (pico ou fora do pico) e com o uso de cache.</p>
   <p>Como ainda não há tráfego real com a DeepSeek, o tráfego no pico e o cache foram tratados como faixa, do melhor caso ao pior. Mil usuários custam exatamente 10 vezes mais em API.</p>
 </div>
-<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>Nesta escala a API custa centavos por semana. O que vai pesar de verdade é a infraestrutura, que ainda não foi informada.</p></div>
+<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>Nesta escala a API custa centavos por semana. O que pesa de verdade é a infraestrutura: ${brl(INFRA_SEMANA_BRL)} por semana na AWS (página 11), por causa dos 2,5 GB de memória que a IA reserva para o modelo de embeddings.</p></div>
 <div class="a c23 l2">
   <table>${cabecaCasos}<tbody>
     ${linhaCusto("Solicitações", (r) => inteiro(r.solicitacoesSemana))}
@@ -260,7 +323,7 @@ const custo2 = pg(
       <tr><th scope="row">Tokens de entrada por resposta</th><td class="v">${inteiro(PREM.tokIn)}</td></tr>
       <tr><th scope="row">Tokens de saída por resposta</th><td class="v">${inteiro(PREM.tokOut)}</td></tr>
       <tr><th scope="row">Respostas resolvidas</th><td class="v">${pct(PREM.resolucao, 0)}</td></tr>
-      <tr><th scope="row">Infraestrutura por semana</th><td class="v">não informada</td></tr>
+      <tr><th scope="row">Infraestrutura por semana</th><td class="v">${brl(INFRA_SEMANA_BRL)}</td></tr>
     </tbody>
   </table>
 </div>
@@ -404,7 +467,7 @@ const resol = pg(
   <table>${cabecaCasos}<tbody>
     ${linhaCusto("Custo de API por resolução", (r) => brl(r.custoPorResolucaoBrl))}
   </tbody></table>
-  <p class="nota">Com ${pct(PREM.resolucao, 0)} de resolução assumida. Não inclui infraestrutura, que ainda não foi informada: ao informá-la, soma-se ao custo total antes de dividir.</p>
+  <p class="nota">Com ${pct(PREM.resolucao, 0)} de resolução assumida. Não inclui a infraestrutura (página 11): somando ${brl(INFRA_SEMANA_BRL)} por semana, o custo por resolução vai a ${brl((exp100.custoApiSemanaBrl + INFRA_SEMANA_BRL) / exp100.resolucoesSemana)} com 100 usuários e ${brl((exp1000.custoApiSemanaBrl + INFRA_SEMANA_BRL) / exp1000.resolucoesSemana)} com 1.000.</p>
 </div>`,
 );
 
@@ -414,7 +477,7 @@ const roiPg = pg(
   `${abre(10)}
 <div class="a c1 l1">
   <h2>Custo/retorno (ROI) ${tag("estimado")}</h2>
-  <p class="sub"><span class="m">Sem o benefício por resolução definido,  não existe um ROI único.</span></p>
+  <p class="sub"><span class="m">Valendo o tempo do síndico, o ROI é de ${sinal(roiBack1000)} com 1.000 usuários</span> e de ${sinal(roiBack100)} com 100.</p>
 </div>
 <div class="stat g-verde">
   <div class="rot">Ponto de equilíbrio · caso esperado · só API</div>
@@ -428,9 +491,9 @@ const roiPg = pg(
       ÷ custo total
 benefício = resoluções
           × benefício por resolução</pre>
-  <p>O benefício por resolução (por exemplo, um atendimento humano evitado) é uma decisão do grupo e ainda não foi informado.</p>
+  <p>Benefício estimado na página 14, pelo tempo do síndico: <b>${brl(BENEF_RES)}</b> por resolução. Com 100 usuários a infra fixa pesa mais que o benefício; com 1.000, ela se dilui.</p>
 </div>
-<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>O grupo precisa escolher quanto vale uma resolução. A tabela mostra o que cada escolha resultaria.</p></div>
+<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>O benefício estimado vem de premissas. A tabela mostra o ROI só com API para outros valores de benefício.</p></div>
 <div class="a c23 l2">
   <table>
     <thead><tr><th>Benefício por resolução (hipótese)</th>${hipoteses.map((h) => `<th class="v">${brl(h, 2)}</th>`).join("")}</tr></thead>
@@ -439,11 +502,139 @@ benefício = resoluções
       <tr><th scope="row">ROI com 1.000 usuários</th>${hipoteses.map((h) => `<td class="v">${roi(1000, h) >= 0 ? "+" : ""}${inteiro(roi(1000, h) * 100)}%</td>`).join("")}</tr>
     </tbody>
   </table>
-  <p class="nota">Os valores do cabeçalho são hipóteses de leitura, não estimativas do grupo. Caso esperado, só custo de API (infraestrutura em zero). Os percentuais são altos porque o custo de API por resolução é de frações de centavo; o ROI real cairá quando a infraestrutura for informada. É igual nos dois cenários porque a API escala linearmente; só diverge quando a infraestrutura de cada cenário for informada.</p>
+  <p class="nota">Os valores do cabeçalho são hipóteses de leitura, não estimativas do grupo. Caso esperado, só custo de API. Os percentuais são altos porque o custo de API por resolução é de frações de centavo; com a infraestrutura da página 11 eles caem bastante, sobretudo com 100 usuários, porque a infra é fixa.</p>
 </div>`,
 );
 
-// ═════════════ 11 · MÉTODO E LIMITAÇÕES ═════════════
+// ═════════════ 11 · INFRAESTRUTURA NA AWS ═════════════
+const usd = (v) => `US$${NBSP}${fmt(v, 2)}`;
+const infraPg = pg(
+  "",
+  `${abre(12)}
+<div class="a c1 l1">
+  <h2>Infraestrutura na AWS ${tag("estimado")}</h2>
+  <p class="sub"><span class="m">A parte da IA na máquina da AWS custa ${brl(INFRA_SEMANA_BRL)} por semana,</span> com 100 ou com 1.000 usuários.</p>
+</div>
+<div class="stat g-azul">
+  <div class="rot">Parcela da IA · preço de lista</div>
+  <div class="big">${bigBrl(brl(INFRA_SEMANA_BRL))}<small>/semana</small></div>
+  <div class="cap">${brl(INFRA_MES_BRL)} por mês · ${pct(FATIA_IA, 2)} da máquina</div>
+  <div class="ori">${tag("estimado")} ${tag("premissa")}</div>
+</div>
+<div class="a c3 l1 corpo">
+  <p>O Terraform da equipe (<span class="v">devops-infra-ecociente</span>) sobe <strong>uma EC2 t3.large com k3s</strong> em us-east-1, com 30 GB de disco gp3 e um IP elástico. A máquina é dividida com as APIs Java.</p>
+  <p>A IA fica com a fatia da memória que reserva: 2.560 MiB de 8.192 MiB. Os bancos (MongoDB Atlas, Redis Cloud, Neo4j Aura e Qdrant Cloud) ficam fora da AWS e entram aqui no plano gratuito.</p>
+</div>
+<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>A infra é custo fixo. Mil usuários fazem ${inteiro(1000 * PREM.q)} perguntas por semana: mesmo concentradas em poucas horas, é menos de uma por vez, e a mesma réplica atende os dois cenários.</p></div>
+<div class="a c23 l2">
+  <table>
+    <thead><tr><th>Item</th><th class="v">Conta</th><th class="v">Por mês</th></tr></thead>
+    <tbody>
+      ${AWS_ITENS.map((i) => `<tr><th scope="row">${i.rot}</th><td class="v">${i.conta}</td><td class="v">${usd(i.usdMes)}</td></tr>`).join("")}
+      <tr class="soma"><th scope="row">Máquina inteira</th><td class="v"></td><td class="v">${usd(awsUsdMes)}</td></tr>
+      <tr class="soma"><th scope="row">Parcela da IA</th><td class="v">× ${pct(FATIA_IA, 2)}</td><td class="v">${usd(infraIaUsdMes)} = ${brl(INFRA_MES_BRL)}</td></tr>
+    </tbody>
+  </table>
+  <p class="nota">Preço de lista sob demanda; no AWS Academy a conta é paga com créditos. Mês de 730 h; semana = mês ÷ ${fmt(SEMANAS_MES, 3)}. Nos planos pagos de entrada dos bancos (${BANCOS_PAGOS.map(([nome, v]) => `${nome}, ${usd(v)}`).join("; ")}), somam-se ${usd(bancosUsdMes)} por mês, ou ${brl((bancosUsdMes * USD_BRL) / SEMANAS_MES)} por semana. A IA pode chegar a 3,5 GB dos 8 GB da máquina.</p>
+</div>`,
+);
+
+// ═════════════ 12–13 · PROJEÇÃO POR CONDOMÍNIO ═════════════
+const cabCondo = `<thead><tr><th></th>${casos.map((c) => `<th class="v">${c.rotulo}</th>`).join("")}</tr></thead>`;
+const linhaCondo = (rot, lista, f) => `<tr><th scope="row">${rot}</th>${lista.map((c) => `<td class="v">${f(c)}</td>`).join("")}</tr>`;
+
+const residencial = pg(
+  "",
+  `${abre(13)}
+<div class="a c1 l1">
+  <h2>Condomínio residencial ${tag("estimado")}</h2>
+  <p class="sub"><span class="m">A IA consome ${pct(resEsp.api / RES.receita)} do que um condomínio médio paga,</span> no caso esperado.</p>
+</div>
+<div class="stat dupla g-verde">
+  <div class="rot">Condomínio médio · por mês</div>
+  <div class="par"><div class="big">${bigBrl(brl(RES.receita, 0))}<small>/mês</small></div><div class="cap">receita do plano · ${RES.unidades} apartamentos × R$${NBSP}4,00</div></div>
+  <div class="par"><div class="big">${bigBrl(brl(resEsp.api))}<small>/mês</small></div><div class="cap">custo de API · ${inteiro(RES.usuarios)} moradores</div></div>
+</div>
+<div class="a c3 l1 corpo">
+  <p><strong>Condomínio médio:</strong> ${RES.unidades} apartamentos (média da cidade de São Paulo, Lello 2025) × ${fmt(RES.moradoresPorUnidade)} moradores por domicílio (IBGE, Censo 2022) = <strong>${inteiro(RES.usuarios)} moradores</strong>.</p>
+  <p><strong>Plano Empresarial Residencial:</strong> R$ 4,00 por apartamento por mês. Premissa: todos os moradores usam o chat ${PREM.q} vezes por semana, o que é um teto.</p>
+</div>
+<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>Receita e custo crescem juntos com o número de apartamentos, então a proporção vale de 58 a 118 apartamentos. A infra da IA (${brl(INFRA_MES_BRL)} por mês) cabe na receita de um único condomínio.</p></div>
+<div class="a c23 l2">
+  <table>${cabCondo}<tbody>
+    ${linhaCondo("Solicitações por mês", resCasos, () => inteiro(solicitacoesMes(RES.usuarios)))}
+    ${linhaCondo("Custo de API por mês", resCasos, (c) => brl(c.api))}
+    ${linhaCondo("Por apartamento", resCasos, (c) => brl(c.api / RES.unidades))}
+    ${linhaCondo("Parte da receita do plano", resCasos, (c) => pct(c.api / RES.receita))}
+  </tbody></table>
+  <p class="nota">${casos.map((c) => `${c.rotulo}: ${c.desc}`).join(". ")}. Com 30% dos moradores usando, os custos de API caem para 30%. A infra fixa equivale a ${pct(INFRA_MES_BRL / RES.receita, 0)} da receita de um condomínio, ou ${pct(INFRA_MES_BRL / (10 * RES.receita))} com 10 condomínios. A receita paga o produto inteiro, não só a IA.</p>
+</div>`,
+);
+
+const industrial = pg(
+  "",
+  `${abre(14)}
+<div class="a c1 l1">
+  <h2>Condomínio industrial ${tag("estimado")}</h2>
+  <p class="sub"><span class="m">A IA consome ${pct(indEsp.api / IND.receita, 2)} do que um condomínio logístico médio paga,</span> no caso esperado.</p>
+</div>
+<div class="stat dupla g-azul">
+  <div class="rot">Condomínio médio · por mês</div>
+  <div class="par"><div class="big">${bigBrl(brl(IND.receita, 0))}<small>/mês</small></div><div class="cap">receita do plano · ${inteiro(IND.area)} m² × R$ 0,50</div></div>
+  <div class="par"><div class="big">${bigBrl(brl(indEsp.api))}<small>/mês</small></div><div class="cap">custo de API · ${IND.usuarios} usuários</div></div>
+</div>
+<div class="a c3 l1 corpo">
+  <p><strong>Condomínio médio:</strong> ${fmt(IND.estoqueM2 / 1e6, 1)} milhões de m² de área locável em ${inteiro(IND.condominios)} condomínios logísticos prontos no Brasil (Buildings, 3º tri. 2025) = <strong>${inteiro(IND.area)} m²</strong> por condomínio.</p>
+  <p><strong>Plano Industrial:</strong> R$ 0,50 por m² por mês. Não há fonte para o número de usuários: a premissa é de ${IND.usuarios} pessoas das empresas ocupantes usando o chat ${PREM.q} vezes por semana.</p>
+</div>
+<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>No industrial o preço é por área, não por pessoa. A IA é desprezível frente à receita, mesmo com dez vezes mais usuários.</p></div>
+<div class="a c23 l2">
+  <table>${cabCondo}<tbody>
+    ${linhaCondo("Solicitações por mês", indCasos, () => inteiro(solicitacoesMes(IND.usuarios)))}
+    ${linhaCondo("Custo de API por mês", indCasos, (c) => brl(c.api))}
+    ${linhaCondo("Parte da receita do plano", indCasos, (c) => pct(c.api / IND.receita, 3))}
+    ${linhaCondo(`Parte da receita, ${IND.usuariosAlto} usuários`, indCasos, (c) => pct(c.alto / IND.receita, 2))}
+  </tbody></table>
+  <p class="nota">A área média mistura todas as classes de galpão; na classe A ela é de ${inteiro(33_700_000 / 625)} m² (625 condomínios). A infra fixa da IA (${brl(INFRA_MES_BRL)} por mês) equivale a ${pct(INFRA_MES_BRL / IND.receita, 2)} da receita de um condomínio.</p>
+</div>`,
+);
+
+// ═════════════ 14 · TEMPO DO SÍNDICO ═════════════
+const linhaSind = (rot, f) => `<tr><th scope="row">${rot}</th>${[sMor, sProf, sMed].map((x) => `<td class="v">${f(x)}</td>`).join("")}</tr>`;
+const horas = (h) => `${fmt(h, 1)}${NBSP}h`;
+const sindicoPg = pg(
+  "",
+  `${abre(15)}
+<div class="a c1 l1">
+  <h2>Tempo do síndico ${tag("estimado")}</h2>
+  <p class="sub"><span class="m">O chatbot devolve ao síndico ${horas(sMed.hMes)} por mês por condomínio,</span> ou ${brl(sMed.benef)}, na média.</p>
+</div>
+<div class="stat dupla g-verde">
+  <div class="rot">Benefício por condomínio · por mês</div>
+  <div class="par"><div class="big">${bigBrl(brl(sMor.benef))}<small>/mês</small></div><div class="cap">síndico morador · ${horas(sMor.hMes)} liberadas</div></div>
+  <div class="par"><div class="big">${bigBrl(brl(sProf.benef))}<small>/mês</small></div><div class="cap">síndico profissional · ${horas(sProf.hMes)} liberadas</div></div>
+</div>
+<div class="a c3 l1 corpo">
+  <p><strong>Hora do síndico:</strong> R$ 3.214,86 por mês ÷ (43 h × ${fmt(SEMANAS_MES, 3)} semanas) = <strong>${brl(SIND.hora)}</strong> (Salário.com.br, CAGED). <strong>Dedicação</strong> (Datafolha): o morador dá 19 h por semana a 103 unidades e o profissional, 32 h a 750. Para ${RES.unidades} apartamentos: ${horas(sMor.hSem)} e ${horas(sProf.hSem)} por semana.</p>
+  <p>${tag("premissa")} ${pct(SIND.fatiaDuvidas, 0)} desse tempo vai em responder dúvidas, e o chatbot absorve ${pct(SIND.fatiaChat, 0)} delas.</p>
+</div>
+<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>Com síndico morador a IA se paga com folga. O profissional passa tão pouco tempo em cada condomínio que o benefício fica perto do custo.</p></div>
+<div class="a c23 l2">
+  <table>
+    <thead><tr><th></th><th class="v">Morador</th><th class="v">Profissional</th><th class="v">Média (${pct(SIND.fatiaProf, 0)} prof.)</th></tr></thead>
+    <tbody>
+      ${linhaSind("Horas por semana no condomínio", (x) => horas(x.hSem))}
+      ${linhaSind("Horas liberadas por mês", (x) => horas(x.hMes))}
+      ${linhaSind("Benefício por mês", (x) => brl(x.benef))}
+      ${linhaSind("ROI por condomínio", (x) => sinal(roiCondo(x.benef)))}
+      ${linhaSind("Benefício por resolução", (x) => brl(x.benef / resolMes))}
+    </tbody>
+  </table>
+  <p class="nota">Custo da IA por condomínio: ${brl(resEsp.api)} de API (caso esperado, página 12) + infra dividida por ${SIND.condominiosInfra} condomínios = ${brl(custoCondo)} por mês. ${inteiro(resolMes)} resoluções por mês. Sem encargos trabalhistas, então a hora real custa mais. A média por resolução, ${brl(BENEF_RES)}, é a que está no <span class="v">.env</span>.</p>
+</div>`,
+);
+
+// ═════════════ 15 · MÉTODO E LIMITAÇÕES ═════════════
 const metodo = pg(
   "",
   `${abre(11, true, 850)}
@@ -467,36 +658,37 @@ const metodo = pg(
     <li><strong>Resolução e tokens são premissas.</strong> O juiz simulado aprova tudo e o LLM simulado não reporta tokens.</li>
     <li><strong>Infraestrutura e benefício em zero.</strong> Sem eles não há custo total completo nem ROI único.</li>
     <li><strong>Preços e cotação mudam.</strong> Valem na data da consulta.</li>
+    <li><strong>Código mudou depois da medição.</strong> O thinking da DeepSeek só passou a ser desligado no código em 01/11/2026, e a base de conhecimento passou para o Qdrant. Os tempos medidos são anteriores a isso.</li>
   </ul>
 </div>`,
 );
 
-// ═════════════ 12 · PRÓXIMOS PASSOS ═════════════
-const proximos = pg(
-  "escura",
-  `<div class="metade-esc"></div>
-${pos(550, 0, arte({ w: 550, h: 850, seed: 23, cols: 12, rows: 18, stops: CEU_LADO, arvores: [{ x: 120, y: 815, s: 70, paleta: PALETA_ROSA }, { x: 420, y: 800, s: 90, paleta: PALETA_VERDE }] }))}
-<div class="a" style="left:60px;top:118px;width:440px">
-  <h2 class="grande" style="font-size:80px;line-height:74px">Para fechar o que falta medir</h2>
-  <p class="lead" style="margin-top:24px">Quatro passos, nesta ordem. Os dois primeiros destravam quase todos os “a medir” deste relatório.</p>
-</div>
-<div class="vidro" style="left:600px;top:130px;width:440px">
-  <h3>Próximos passos</h3>
-  <ol class="passos">
-    <li>Rodar o benchmark com a DeepSeek (<span class="v">deepseek-flash</span>, sem thinking), em pico e fora do pico, com perguntas de todas as rotas; guardar tokens por resposta, latência por etapa e taxa de erro.</li>
-    <li>Informar a infraestrutura semanal para 100 e 1.000 usuários (<span class="v">COST_INFRA_WEEKLY_BRL_100</span> e <span class="v">_1000</span>).</li>
-    <li>Definir o benefício por resolução (<span class="v">COST_BENEFIT_PER_RESOLUTION_BRL</span>) e medir as solicitações por usuário por semana com uso real.</li>
-    <li>Separar cache hit de cache miss no cálculo do backend: hoje o <span class="v">cost.py</span> usa um único preço de entrada, o que superestima o custo.</li>
-  </ol>
-</div>
-<div class="vidro" style="left:600px;top:500px;width:440px">
-  <h3>Referências</h3>
-  <ul class="lista">
-    <li>DeepSeek, preços: api-docs.deepseek.com/quick_start/pricing</li>
-    <li>Cotação: api.frankfurter.dev</li>
-    <li>Repositório: <span class="v">docs/SRE_E_CUSTOS.md</span>, <span class="v">docs/PAINEL_DE_CONTROLE.md</span> e <span class="v">observability/</span> (Prometheus e Grafana)</li>
-  </ul>
-</div>`,
+// ═════════════ 16 · FONTES ═════════════
+const FONTES = [
+  ["IBGE, Censo Demográfico 2022: média de 2,79 moradores por domicílio ocupado (divulgado em 28/06/2023).", "agenciadenoticias.ibge.gov.br/agencia-noticias/2012-agencia-noticias/noticias/37238-pais-tem-90-milhoes-de-domicilios-34-a-mais-que-em-2010"],
+  ["Lello, Mapa dos Condomínios 2025, via Jovem Pan (27/04/2025): 31,1 mil condomínios na cidade de São Paulo, 75 apartamentos em média, de 58 (zona sul) a 118 (zona norte).", "jovempan.com.br/noticias/brasil/zona-sul-concentra-maior-numero-de-condominios-em-sao-paulo-aponta-levantamento.html"],
+  ["Buildings (06/10/2025): 1.029 condomínios logísticos prontos e 42,5 milhões de m² de área locável no Brasil; classe A, 33,7 milhões de m² em 625.", "revista.buildings.com.br/brasil-tem-57-milhoes-de-m²-em-construcao-logistica"],
+  ["Salário.com.br (CAGED, atualizado em 08/10/2026): síndico de edifícios (CBO 510110), média de R$ 3.214,86 por mês para 43 h semanais.", "salario.com.br/profissao/sindico-edificios-cbo-510110"],
+  ["Datafolha para o Grupo Superlógica, Perfil do Síndico Brasileiro (via Revista Meu Condomínio, 04/12/2025): 46% profissionais; profissional, 8 condomínios, 750 unidades, 32 h por semana; morador, 103 unidades, 19 h por semana.", "revistameucondominio.com.br/pesquisa-aponta-que-46-dos-sindicos-no-brasil-ja-atuam-de-forma-profissional"],
+  ["EcoCiente, tabela de planos: Empresarial Residencial R$ 4,00 por unidade por mês; Industrial R$ 0,50 por m² por mês.", null],
+  [`DeepSeek, preços do deepseek-flash (consultados em ${ULTIMA}).`, "api-docs.deepseek.com/quick_start/pricing"],
+  [`Frankfurter, cotação de ${DATA_COTACAO}: US$ 1 = R$ ${fmt(USD_BRL, 4)}.`, "api.frankfurter.dev/v1/latest?base=USD&symbols=BRL"],
+  ["Terraform da equipe de infraestrutura: EC2 t3.large, 30 GB gp3, Elastic IP, us-east-1.", "github.com/EcoCiente-Instituto-J-F/devops-infra-ecociente (terraform/aws)"],
+  ["AWS EC2 sob demanda: t3.large em us-east-1, US$ 0,0832 por hora (conferido em aws-pricing.com, 31/10/2026).", "aws.amazon.com/ec2/pricing/on-demand"],
+  ["AWS EBS: gp3 em us-east-1, US$ 0,08 por GB-mês.", "aws.amazon.com/ebs/pricing"],
+  ["AWS VPC: IPv4 público, inclusive Elastic IP, US$ 0,005 por hora.", "aws.amazon.com/vpc/pricing"],
+  ["MongoDB Atlas Flex: de US$ 8 a US$ 30 por mês.", "mongodb.com/docs/atlas/billing/atlas-flex-costs"],
+  ["Redis Cloud Essentials 250 MB: US$ 5 por mês (valor de marketplace; confirmar na calculadora).", "redis.io/pricing"],
+  ["Neo4j AuraDB Professional: US$ 65 por GB por mês, mínimo de 1 GB.", "neo4j.com/pricing"],
+  ["Qdrant Cloud: plano gratuito com 1 GB de RAM e 4 GB de disco; pago por uso.", "qdrant.tech/pricing"],
+];
+const itemFonte = ([texto, url]) => `<li>${texto}${url ? `<br><span class="v" style="font-size:9.5px;font-weight:500;word-break:break-all">${url}</span>` : ""}</li>`;
+const fontes = pg(
+  "",
+  `${abre(24, true, 850)}
+<div class="a c1 l1"><div class="grande" style="font-size:72px;line-height:66px">Fontes</div><p class="sub" style="margin-top:18px"><span class="m">De onde vem cada número externo.</span></p></div>
+<div class="a c2 l1 corpo" style="font-size:11.5px;line-height:15px"><ul class="lista">${FONTES.slice(0, 7).map(itemFonte).join("")}</ul></div>
+<div class="a c3 l1 corpo" style="font-size:11.5px;line-height:15px"><ul class="lista">${FONTES.slice(7).map(itemFonte).join("")}</ul></div>`,
 );
 
 const html = `<!doctype html>
@@ -507,7 +699,7 @@ const html = `<!doctype html>
 <link rel="stylesheet" href="relatorio.css">
 </head>
 <body>
-${[capa, intro, resumo, custo1, custo2, lat1, lat2, erros, resol, roiPg, metodo, proximos].join("\n")}
+${[capa, intro, resumo, custo1, custo2, lat1, lat2, erros, resol, roiPg, infraPg, residencial, industrial, sindicoPg, metodo, fontes].join("\n")}
 </body>
 </html>
 `;
@@ -515,7 +707,7 @@ ${[capa, intro, resumo, custo1, custo2, lat1, lat2, erros, resol, roiPg, metodo,
 writeFileSync(join(aqui, "relatorio.html"), html, "utf8");
 writeFileSync(
   join(aqui, "dados", "resumo.json"),
-  JSON.stringify({ gerado_em: new Date().toISOString(), cotacao: { usdBrl: USD_BRL, data: DATA_COTACAO }, premissas: PREM, bench: { c1: b1, c10: b10 }, chat, entreEtapas, nos, http: snap.http, juiz: snap.juiz, rotas: snap.rotas, custosBackend: custosBackend.amostras, cenarios: cenarios.map((c) => ({ usuarios: c.usuarios, casos: c.casos.map((k) => ({ caso: k.id, ...k.r })) })) }, null, 2),
+  JSON.stringify({ gerado_em: new Date().toISOString(), cotacao: { usdBrl: USD_BRL, data: DATA_COTACAO }, premissas: PREM, bench: { c1: b1, c10: b10 }, chat, entreEtapas, nos, http: snap.http, juiz: snap.juiz, rotas: snap.rotas, custosBackend: custosBackend.amostras, sindico: { ...SIND, morador: { ...SIND.morador, ...sMor }, prof: { ...SIND.prof, ...sProf }, media: sMed, custoCondo, beneficioPorResolucao: BENEF_RES, roiBackend: { u100: roiBack100, u1000: roiBack1000 } }, infra: { awsUsdMes, fatiaIa: FATIA_IA, mesBrl: INFRA_MES_BRL, semanaBrl: INFRA_SEMANA_BRL, bancosPagosUsdMes: bancosUsdMes }, condominios: { residencial: { ...RES, casos: resCasos.map((c) => ({ caso: c.id, apiMesBrl: c.api })) }, industrial: { ...IND, casos: indCasos.map((c) => ({ caso: c.id, apiMesBrl: c.api, apiMesBrlAlto: c.alto })) } }, cenarios: cenarios.map((c) => ({ usuarios: c.usuarios, casos: c.casos.map((k) => ({ caso: k.id, ...k.r })) })) }, null, 2),
   "utf8",
 );
 await vite.close();
