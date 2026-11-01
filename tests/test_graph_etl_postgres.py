@@ -156,11 +156,7 @@ def _populator(postgres, neo):
 
 
 def _expected(postgres, key: str) -> int:
-    sql = CONTAGENS[key][0]
-    sql = sql.replace("%(min_rep)s", str(etl.DIFICULDADE_MIN_REPROVACOES)).replace(
-        "%(min_taxa)s", repr(float(etl.DIFICULDADE_MIN_TAXA))
-    )
-    return int(postgres.fetch_one(sql)["n"])
+    return int(postgres.fetch_one(CONTAGENS[key][0])["n"])
 
 
 async def test_full_run_sends_exactly_what_the_validation_expects(postgres) -> None:
@@ -171,6 +167,7 @@ async def test_full_run_sends_exactly_what_the_validation_expects(postgres) -> N
     assert stats["usuarios"] == _expected(postgres, "Usuario") == VOLUME["usuarios"]
     assert stats["postagens"] == _expected(postgres, "Postagem")
     assert stats["mora_em"] == _expected(postgres, "MORA_EM")
+    assert sum(r["torre_id"] is not None for r in neo.rows_of("mora_em")) == _expected(postgres, "MORA_NA")
     ativos = [r for r in neo.rows_of("pertence_a_usuario_condominio") if r["ativo"]]
     assert len(ativos) == _expected(postgres, "PERTENCE_A (usuário)")
     assert stats["validou"] == _expected(postgres, "VALIDOU")
@@ -223,6 +220,51 @@ async def test_incremental_catches_recent_activity_through_dates_and_audit(postg
     assert 0 < stats["mora_em"] <= 2
 
 
+async def test_votes_follow_vote_type_even_with_inconsistent_reason(postgres, pg_url) -> None:
+    # Dois pares (postagem, usuário) ainda sem voto (unique votos_postagens_index_7).
+    _psql(
+        pg_url,
+        "-c",
+        """
+        WITH livres AS (
+          SELECT p.id_postagem, u.id_usuario, row_number() OVER (ORDER BY p.id_postagem, u.id_usuario) AS rn
+          FROM tb_postagens p CROSS JOIN tb_usuarios u
+          WHERE NOT EXISTS (SELECT 1 FROM tb_rel_votos_postagens v
+                            WHERE v.postagem_id = p.id_postagem AND v.usuario_id = u.id_usuario)
+          ORDER BY p.id_postagem, u.id_usuario LIMIT 2
+        )
+        INSERT INTO tb_rel_votos_postagens
+          (postagem_id, usuario_id, tipo_voto_id, motivo_denuncia_id, peso_aplicado, comentario, votado_em)
+        SELECT l.id_postagem, l.id_usuario,
+               (SELECT id_tipo_voto FROM tb_lkp_tipos_votos_postagens
+                 WHERE nome_tipo = CASE l.rn WHEN 1 THEN 'denunciar' ELSE 'aprovar' END),
+               CASE l.rn WHEN 1 THEN NULL ELSE 1 END,
+               1,
+               CASE l.rn WHEN 1 THEN 'teste-A' ELSE 'teste-B' END,
+               now() - interval '1 day'
+        FROM livres l
+        """,
+    )
+
+    def par(marca: str) -> tuple[int, int]:
+        row = postgres.fetch_one(
+            f"SELECT usuario_id, postagem_id FROM tb_rel_votos_postagens WHERE comentario = '{marca}'"
+        )
+        return row["usuario_id"], row["postagem_id"]
+
+    neo = RecordingNeo4j()
+    stats = await _populator(postgres, neo).run("full")
+
+    validou = {(r["usuario_id"], r["postagem_id"]) for r in neo.rows_of("validou")}
+    denunciou = {(r["usuario_id"], r["postagem_id"]) for r in neo.rows_of("denunciou")}
+    a, b = par("teste-A"), par("teste-B")
+    assert a in denunciou and a not in validou
+    assert next(r for r in neo.rows_of("denunciou") if (r["usuario_id"], r["postagem_id"]) == a)["motivo"] is None
+    assert b in validou and b not in denunciou
+    assert stats["validou"] == _expected(postgres, "VALIDOU")
+    assert stats["denunciou"] == _expected(postgres, "DENUNCIOU")
+
+
 async def test_postgres_schema_blocks_deletes_so_etl_does_not_rely_on_them(pg_url) -> None:
     """Achado da validação: a auditoria referencia a linha original por FK sem
     ON DELETE, então postagens e vínculos não podem ser apagados. Se o schema
@@ -262,13 +304,14 @@ async def test_prune_computes_orphans_in_python(postgres) -> None:
                 row = postgres.fetch_one(
                     "SELECT usuario_id, condominio_id FROM tb_moradores ORDER BY usuario_id LIMIT 1"
                 )
-                return [{"id": row["usuario_id"], "pertence": [row["condominio_id"], 424242], "mora": [424242]}]
+                return [{"id": row["usuario_id"], "pertence": [row["condominio_id"], 424242], "mora": [424242], "mora_torre": [424242]}]
             return await super().execute(query, parameters)
 
     neo = GraphWithLeftovers()
     removidos = await _populator(postgres, neo)._prune()
     assert removidos["postagens_removidas"] == 1
     assert removidos["mora_em_removidas"] == 1
+    assert removidos["mora_na_removidas"] == 1
     assert removidos["pertence_a_removidas"] >= 1
     deletes = [p["rows"] for q, p in neo.calls if "DETACH DELETE p" in q]
     assert deletes == [[999999]]

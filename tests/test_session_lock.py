@@ -246,6 +246,7 @@ async def _two_replicas(redis, *, distributed: bool):
         enable_external_source=False,
         postgres_url=None,
         rate_limit_per_minute=100,
+        faq_backend="rag",
     )
 
     class _Stub:

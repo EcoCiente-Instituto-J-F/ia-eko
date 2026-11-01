@@ -24,6 +24,7 @@ def _settings(**overrides) -> Settings:
         enable_external_source=False,
         postgres_url=None,
         allow_test_identity_headers=True,
+        faq_backend="rag",
     )
     base.update(overrides)
     return Settings.from_env().with_overrides(**base)

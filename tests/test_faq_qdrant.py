@@ -52,6 +52,7 @@ def _settings(**overrides) -> Settings:
         postgres_url=None,
         allow_test_identity_headers=True,
         faq_backend="qdrant",
+        qdrant_url=None,  # nunca herdar o QDRANT_URL real do .env
         qdrant_collection="faq",
         qdrant_min_score=0.80,
         rate_limit_per_minute=100,
@@ -77,7 +78,7 @@ async def _seed(client: AsyncQdrantClient) -> None:
                     "perfis_relacionados": [],
                     "resposta_canonica": "Cada postagem é validada pelos vizinhos em até 24 horas.",
                     "palavras_chave": ["validação", "postagem"],
-                    "tipo": "regra",
+                    "tipo": "faq_canonica",
                 },
             ),
             models.PointStruct(
@@ -88,7 +89,7 @@ async def _seed(client: AsyncQdrantClient) -> None:
                     "titulo": "Cálculo de pontos",
                     "perfis_relacionados": ["todos"],
                     "resposta_canonica": "Os pontos dependem da categoria do resíduo postado.",
-                    "tipo": "regra",
+                    "tipo": "faq_canonica",
                 },
             ),
             models.PointStruct(
@@ -99,7 +100,7 @@ async def _seed(client: AsyncQdrantClient) -> None:
                     "titulo": "Aprovação de moradores",
                     "perfis_relacionados": ["sindico"],
                     "resposta_canonica": "O síndico aprova a entrada pelo painel do condomínio.",
-                    "tipo": "procedimento",
+                    "tipo": "faq_canonica",
                 },
             ),
         ],
@@ -150,6 +151,155 @@ def test_missing_url_is_reported_not_raised_on_health() -> None:
     assert asyncio.run(service.health()) == "error"
 
 
+# ------------------------------------------------- trechos do RAG no Qdrant
+
+PERGUNTA_VALIDACAO = "Como funciona a validação?"
+
+
+async def _seed_trechos(client: AsyncQdrantClient) -> None:
+    # Trecho com o mesmo vetor (e o mesmo texto) da pergunta: se a busca do FAQ
+    # não filtrasse por tipo, ele empataria com o FAQ-001.
+    await client.upsert(
+        "faq",
+        points=[
+            models.PointStruct(
+                id=101,
+                vector=VETORES["validacao"],
+                payload={
+                    "tipo": "rag_trecho",
+                    "title": "FAQ EcoCiente",
+                    "source": "data/FAQ_KNOWLEDGE_BASE.md",
+                    "url": None,
+                    "kind": "local",
+                    "chunk": 0,
+                    "texto": PERGUNTA_VALIDACAO,
+                },
+            ),
+            models.PointStruct(
+                id=102,
+                vector=VETORES["pontos"],
+                payload={
+                    "tipo": "rag_trecho",
+                    "title": "SINIR",
+                    "source": "https://sinir.gov.br",
+                    "url": "https://sinir.gov.br",
+                    "kind": "external",
+                    "chunk": 3,
+                    "texto": "Os pontos variam conforme o resíduo.",
+                },
+            ),
+        ],
+    )
+
+
+def _service_com_trechos(settings: Settings) -> QdrantFaqService:
+    service, _ = _service(settings)
+    asyncio.run(_seed_trechos(service.client))
+    return service
+
+
+def test_faq_search_ignores_rag_chunks() -> None:
+    service = _service_com_trechos(_settings())
+    faqs = asyncio.run(service.buscar_faq(PERGUNTA_VALIDACAO, limite=10))
+    assert faqs and all(f["tipo"] == "faq_canonica" for f in faqs)
+    assert faqs[0]["faq_id"] == "FAQ-001"
+
+
+def test_buscar_trechos_and_contar() -> None:
+    service = _service_com_trechos(_settings())
+    trechos = asyncio.run(service.buscar_trechos(PERGUNTA_VALIDACAO, 1))
+    assert trechos == [
+        {
+            "title": "FAQ EcoCiente",
+            "source": "data/FAQ_KNOWLEDGE_BASE.md",
+            "url": None,
+            "chunk": 0,
+            "texto": PERGUNTA_VALIDACAO,
+            "score": pytest.approx(1.0),
+        }
+    ]
+    assert asyncio.run(service.contar("rag_trecho")) == 2
+    assert asyncio.run(service.contar("faq_canonica")) == 3
+
+
+def test_rag_search_reads_chunks_from_qdrant_in_the_same_format() -> None:
+    from src.services.rag_service import RAGService
+
+    settings = _settings()
+    rag = RAGService(settings, qdrant=_service_com_trechos(settings))
+    asyncio.run(rag.start())
+    context, sources = asyncio.run(rag.search(PERGUNTA_VALIDACAO, k=2))
+
+    assert context.startswith("[Fonte: FAQ EcoCiente | chunk 0]\n" + PERGUNTA_VALIDACAO)
+    assert "[Fonte: SINIR | chunk 3]\nOs pontos variam" in context
+    assert sources[0].source == "data/FAQ_KNOWLEDGE_BASE.md"
+    assert sources[0].title == "FAQ EcoCiente" and sources[0].chunk == 0 and sources[0].url is None
+    assert sources[1].url == "https://sinir.gov.br"
+    assert asyncio.run(rag.health()) == "ok"
+
+
+def test_rag_start_does_not_index_when_backend_is_qdrant(monkeypatch) -> None:
+    from pathlib import Path
+
+    from langchain_core.vectorstores import InMemoryVectorStore
+
+    from src.services import rag_service
+    from src.services.rag_service import RAGService
+
+    def proibido(*args, **kwargs):
+        raise AssertionError("com FAQ_BACKEND=qdrant o start() não indexa nada")
+
+    monkeypatch.setattr(InMemoryVectorStore, "from_documents", proibido)
+    monkeypatch.setattr(Path, "read_text", proibido)
+    monkeypatch.setattr(rag_service, "baixar_fonte_externa", proibido)
+
+    settings = _settings(enable_external_source=True)
+    service, embedder = _service(settings)
+    rag = RAGService(settings, qdrant=service)
+    asyncio.run(rag.start())
+    assert embedder.calls == []
+    assert rag.vector_store is None
+
+
+def test_rag_search_degrades_when_qdrant_is_down() -> None:
+    from src.services.rag_service import RAGService
+
+    class Fora:
+        async def query_points(self, *args, **kwargs):
+            raise ConnectionError("qdrant fora do ar")
+
+        async def count(self, *args, **kwargs):
+            raise ConnectionError("qdrant fora do ar")
+
+    settings = _settings()
+    service = QdrantFaqService(settings, embedding_service=FakeEmbedding(), client=Fora())  # type: ignore[arg-type]
+    rag = RAGService(settings, qdrant=service)
+    asyncio.run(rag.start())
+    assert asyncio.run(rag.search("Como funciona a validação?")) == ("", [])
+    assert asyncio.run(rag.health()) == "error"
+
+
+def test_rag_health_is_error_without_chunks() -> None:
+    from src.services.rag_service import RAGService
+
+    settings = _settings()
+    service, _ = _service(settings)  # só FAQs, nenhum trecho carregado
+    assert asyncio.run(RAGService(settings, qdrant=service).health()) == "error"
+
+
+def test_rag_backend_keeps_memory_index_even_with_qdrant_service() -> None:
+    from src.services.rag_service import RAGService
+
+    settings = _settings(faq_backend="rag")
+    service, embedder = _service(settings)
+    rag = RAGService(settings, qdrant=service)
+    asyncio.run(rag.start())
+    assert rag.vector_store is not None and rag.documents_count > 0
+    context, sources = asyncio.run(rag.search("Como separar resíduos recicláveis?"))
+    assert context and sources and embedder.calls == []
+    assert asyncio.run(rag.health()) == "ok_local_fallback"
+
+
 # ---------------------------------------------------------------- /chat
 
 
@@ -166,6 +316,9 @@ def qdrant_client_app():
         client.__enter__()
         service, embedder = _service(settings)
         client.app.state.graph.faq_search = service
+        # O RAG também lê do Qdrant com este backend; sem isto ele usaria o
+        # QDRANT_URL do ambiente.
+        client.app.state.rag.qdrant = service
         return client, embedder
 
     created = []
@@ -258,6 +411,33 @@ def test_canonical_flag_does_not_leak_to_next_turn(qdrant_client_app) -> None:
     assert second["judge"]["motivo"] != "resposta_canonica_qdrant"
 
 
-def test_rag_backend_is_untouched_by_default(client) -> None:
+def test_qdrant_is_the_default_backend() -> None:
+    from src.core.config import Settings
+
+    assert Settings().faq_backend == "qdrant"
+
+
+def test_rag_backend_is_untouched_when_pinned(client) -> None:
+    # O fixture `client` fixa faq_backend="rag": nada de Qdrant.
     assert client.app.state.graph.faq_search is None
     assert client.get("/health").json()["services"]["qdrant"] == "not_configured"
+
+
+def test_search_without_qdrant_url_fails_before_loading_the_embedding_model() -> None:
+    import pytest as _pytest
+
+    from src.services.qdrant_service import QdrantUnavailable
+
+    class Contador:
+        chamadas = 0
+
+        async def agerar_embedding(self, texto):
+            Contador.chamadas += 1
+            return [0.0] * DIM
+
+    service = QdrantFaqService(_settings(), embedding_service=Contador())  # type: ignore[arg-type]
+    with _pytest.raises(QdrantUnavailable):
+        asyncio.run(service.buscar_faq("como faço login?"))
+    with _pytest.raises(QdrantUnavailable):
+        asyncio.run(service.buscar_trechos("como faço login?", 3))
+    assert Contador.chamadas == 0

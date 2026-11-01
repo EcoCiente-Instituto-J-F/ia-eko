@@ -21,10 +21,13 @@ from qdrant_client import AsyncQdrantClient, models  # noqa: E402
 from src.core.config import Settings  # noqa: E402
 from src.etl.populate_qdrant import (  # noqa: E402
     TIPO_FAQ,
+    TIPO_TRECHO,
     DimensaoIncompativel,
     FaqParseError,
     QdrantFaqLoader,
+    Trecho,
     main,
+    montar_trechos,
     normalizar_perfis,
     parse_faq_canonicas,
 )
@@ -320,7 +323,8 @@ def test_e5_uses_passage_prefix_for_documents_and_query_for_questions() -> None:
 
 def test_cli_dry_run_and_invalid_file(tmp_path, capsys) -> None:
     assert main(["--dry-run", "--arquivo", str(KB)]) == 0
-    assert '"faqs": 64' in capsys.readouterr().out
+    saida = capsys.readouterr().out
+    assert '"faqs": 64' in saida and f'"trechos": {len(_trechos_locais())}' in saida
     ruim = tmp_path / "ruim.md"
     ruim.write_text("# sem FAQ", encoding="utf-8")
     assert main(["--dry-run", "--arquivo", str(ruim)]) == 2
@@ -338,3 +342,164 @@ def test_recreate_keeps_the_old_collection_if_embedding_fails(faqs) -> None:
     with pytest.raises(RuntimeError):
         asyncio.run(quebrado.carregar(faqs, recriar=True))
     assert asyncio.run(client.count("faq")).count == 64  # o chat continua respondendo
+
+
+# ------------------------------------------------------- trechos do RAG
+
+
+def _trechos_locais() -> list[Trecho]:
+    settings = _settings()
+    return montar_trechos(
+        KB.read_text(encoding="utf-8"), settings=settings, title="FAQ EcoCiente", source="md", url=None, kind="local"
+    )
+
+
+def _contar(client, tipo: str) -> int:
+    filtro = models.Filter(must=[models.FieldCondition(key="tipo", match=models.MatchValue(value=tipo))])
+    return asyncio.run(client.count("faq", count_filter=filtro)).count
+
+
+def test_knowledge_base_becomes_rag_chunks_with_stable_ids() -> None:
+    trechos = _trechos_locais()
+    assert len(trechos) > 0
+    assert all(t.kind == "local" for t in trechos)
+    assert [t.chunk for t in trechos] == list(range(len(trechos)))
+    assert [t.point_id for t in trechos] == [t.point_id for t in _trechos_locais()]
+    payload = trechos[0].payload("modelo-x")
+    assert set(payload) == {"tipo", "title", "source", "url", "kind", "chunk", "texto", "embedding_model", "content_hash"}
+    assert payload["tipo"] == TIPO_TRECHO and payload["texto"] == trechos[0].texto
+
+
+def test_chunks_load_incrementally_and_drop_removed_ones() -> None:
+    from dataclasses import replace
+
+    trechos = _trechos_locais()
+    n = len(trechos)
+    loader, client, embedder = _loader()
+
+    r = asyncio.run(loader.carregar_trechos(trechos, fontes={"md"}))
+    assert (r.inseridos, r.atualizados, r.inalterados, r.removidos) == (n, 0, 0, 0)
+    assert r.colecao_criada and _contar(client, TIPO_TRECHO) == n
+
+    antes = embedder.documentos_embedados
+    r = asyncio.run(loader.carregar_trechos(trechos, fontes={"md"}))
+    assert (r.inseridos, r.atualizados, r.inalterados, r.removidos) == (0, 0, n, 0)
+    assert embedder.documentos_embedados == antes
+
+    nova = [replace(trechos[0], texto="Texto novo do primeiro trecho.")] + trechos[1:-1]
+    r = asyncio.run(loader.carregar_trechos(nova, fontes={"md"}))
+    assert (r.inseridos, r.atualizados, r.inalterados, r.removidos) == (0, 1, n - 2, 1)
+    assert embedder.documentos_embedados - antes == 1
+    assert _contar(client, TIPO_TRECHO) == n - 1
+
+
+def test_chunks_never_touch_canonical_faqs_or_other_sources(faqs) -> None:
+    loader, client, _ = _loader()
+    asyncio.run(loader.carregar(faqs))
+    sinir = Trecho(title="SINIR", source="sinir", url="https://sinir.gov.br/", kind="external", chunk=0, texto="Resíduos sólidos.")
+    asyncio.run(loader.carregar_trechos([sinir], fontes={"sinir"}))
+
+    trechos = _trechos_locais()
+    r = asyncio.run(loader.carregar_trechos(trechos, fontes={"md"}))
+    assert r.removidos == 0
+    assert _contar(client, TIPO_FAQ) == 64
+    assert _contar(client, TIPO_TRECHO) == len(trechos) + 1
+    assert asyncio.run(client.retrieve("faq", ids=[sinir.point_id]))[0].payload["source"] == "sinir"
+
+    # A carga dos FAQs também não apaga trechos.
+    r = asyncio.run(loader.carregar(faqs))
+    assert r.removidos == 0 and _contar(client, TIPO_TRECHO) == len(trechos) + 1
+
+
+def test_cli_loads_faqs_then_chunks_and_keeps_sinir_when_download_fails(monkeypatch, capsys) -> None:
+    import json
+
+    import httpx
+
+    from src.etl import populate_qdrant
+    from src.services import rag_service
+
+    client = AsyncQdrantClient(location=":memory:")
+    settings = _settings(enable_external_source=True, external_source_url="https://sinir.test/")
+    monkeypatch.setattr(Settings, "from_env", classmethod(lambda cls: settings))
+    monkeypatch.setattr(
+        populate_qdrant, "QdrantFaqLoader", lambda s: QdrantFaqLoader(s, client=client, embedding_service=FakeEmbedder())
+    )
+    # O cliente :memory: não sobrevive ao close() do main; mantém aberto para conferir.
+    monkeypatch.setattr(QdrantFaqLoader, "close", lambda self: asyncio.sleep(0))
+
+    async def _sinir_ok(_settings):
+        return "Página do SINIR sobre resíduos sólidos."
+
+    monkeypatch.setattr(rag_service, "baixar_fonte_externa", _sinir_ok)
+    assert main(["--arquivo", str(KB)]) == 0
+    resumo = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    n_local = len(_trechos_locais())
+    assert resumo["faqs"]["inseridos"] == 64 and resumo["trechos"]["inseridos"] == n_local + 1
+
+    async def _sinir_fora(_settings):
+        raise httpx.ConnectError("fora do ar")
+
+    monkeypatch.setattr(rag_service, "baixar_fonte_externa", _sinir_fora)
+    assert main(["--arquivo", str(KB)]) == 0
+    resumo = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert resumo["trechos"]["removidos"] == 0 and resumo["trechos"]["inalterados"] == n_local
+    assert _contar(client, TIPO_TRECHO) == n_local + 1  # o trecho do SINIR continua lá
+
+    # Página que baixa com 200 mas sem texto (shell só de JS) conta como falha.
+    async def _sinir_vazio(_settings):
+        return "   \n "
+
+    monkeypatch.setattr(rag_service, "baixar_fonte_externa", _sinir_vazio)
+    assert main(["--arquivo", str(KB)]) == 0
+    resumo = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert resumo["trechos"]["removidos"] == 0
+    assert _contar(client, TIPO_TRECHO) == n_local + 1
+
+
+def test_filter_indexes_are_ensured_on_an_existing_collection(faqs, monkeypatch) -> None:
+    loader, client, _ = _loader()
+    asyncio.run(loader.carregar(faqs))  # cria a coleção
+
+    chamadas: list[str] = []
+    original = client.create_payload_index
+
+    async def _espiao(collection_name, field_name, field_schema=None, **kw):
+        chamadas.append(field_name)
+        return await original(collection_name, field_name=field_name, field_schema=field_schema, **kw)
+
+    monkeypatch.setattr(client, "create_payload_index", _espiao)
+    asyncio.run(loader.carregar_trechos(_trechos_locais(), fontes={"md"}))
+    # Coleção já existente (ex.: criada por versão anterior): tipo e source são indexados antes do scroll filtrado.
+    assert {"tipo", "source"} <= set(chamadas)
+
+
+def test_cli_with_external_source_disabled_purges_old_sinir_chunks(monkeypatch, capsys) -> None:
+    import json
+
+    from src.etl import populate_qdrant
+    from src.services import rag_service
+
+    client = AsyncQdrantClient(location=":memory:")
+    url = "https://sinir.test/"
+    estado = {"settings": _settings(enable_external_source=True, external_source_url=url)}
+    monkeypatch.setattr(Settings, "from_env", classmethod(lambda cls: estado["settings"]))
+    monkeypatch.setattr(
+        populate_qdrant, "QdrantFaqLoader", lambda s: QdrantFaqLoader(s, client=client, embedding_service=FakeEmbedder())
+    )
+    monkeypatch.setattr(QdrantFaqLoader, "close", lambda self: asyncio.sleep(0))
+
+    async def _sinir_ok(_settings):
+        return "Página do SINIR sobre resíduos sólidos."
+
+    monkeypatch.setattr(rag_service, "baixar_fonte_externa", _sinir_ok)
+    assert main(["--arquivo", str(KB)]) == 0
+    capsys.readouterr()
+    n_local = len(_trechos_locais())
+    assert _contar(client, TIPO_TRECHO) == n_local + 1
+
+    estado["settings"] = _settings(enable_external_source=False, external_source_url=url)
+    assert main(["--arquivo", str(KB)]) == 0
+    resumo = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert resumo["trechos"]["removidos"] == 1
+    assert _contar(client, TIPO_TRECHO) == n_local

@@ -22,6 +22,7 @@ def client():
         enable_external_source=False,
         postgres_url=None,
         allow_test_identity_headers=True,
+        faq_backend="rag",
     )
     app = create_app(settings)
     with TestClient(app) as test_client:

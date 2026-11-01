@@ -237,6 +237,7 @@ async def test_stream_closed_from_another_context_releases_everything_cleanly() 
         enable_external_source=False,
         postgres_url=None,
         rate_limit_per_minute=100,
+        faq_backend="rag",
     )
 
     class _Stub:
