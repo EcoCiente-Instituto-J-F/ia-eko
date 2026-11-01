@@ -1,8 +1,8 @@
 {
-  "gerado_em": "2026-10-27T17:49:33.158Z",
+  "gerado_em": "2026-11-01T16:39:17.046Z",
   "cotacao": {
-    "usdBrl": 5.5884,
-    "data": "26/10/2026"
+    "usdBrl": 5.4325,
+    "data": "30/10/2026"
   },
   "premissas": {
     "q": 5,
@@ -125,6 +125,96 @@
     "tokens_entrada": 0,
     "tokens_saida": 0
   },
+  "sindico": {
+    "salario": 3214.86,
+    "horasSemana": 43,
+    "fatiaDuvidas": 0.25,
+    "fatiaChat": 0.5,
+    "fatiaProf": 0.46,
+    "condominiosInfra": 10,
+    "morador": {
+      "horas": 19,
+      "unidades": 103,
+      "hSem": 13.83495145631068,
+      "hMes": 7.514519764216366,
+      "benef": 129.29486057800858
+    },
+    "prof": {
+      "horas": 32,
+      "unidades": 750,
+      "hSem": 3.2,
+      "hMes": 1.7380952380952381,
+      "benef": 29.905674418604654
+    },
+    "hora": 17.206004460019116,
+    "media": {
+      "hSem": 8.942873786407768,
+      "hMes": 4.857364482200647,
+      "benef": 83.57583494468278
+    },
+    "custoCondo": 23.621149591992186,
+    "beneficioPorResolucao": 0.021627820121487114,
+    "roiBackend": {
+      "u100": -0.665067177681096,
+      "u1000": 1.3210430121224122
+    }
+  },
+  "infra": {
+    "awsUsdMes": 66.786,
+    "fatiaIa": 0.3125,
+    "mesBrl": 113.37967031250001,
+    "semanaBrl": 26.092855633561648,
+    "bancosPagosUsdMes": 78
+  },
+  "condominios": {
+    "residencial": {
+      "unidades": 75,
+      "moradoresPorUnidade": 2.79,
+      "precoUnidade": 4,
+      "usuarios": 209.25,
+      "receita": 300,
+      "casos": [
+        {
+          "caso": "melhor",
+          "apiMesBrl": 6.6801150478124995
+        },
+        {
+          "caso": "esperado",
+          "apiMesBrl": 12.283182560742187
+        },
+        {
+          "caso": "pior",
+          "apiMesBrl": 29.04397846875
+        }
+      ]
+    },
+    "industrial": {
+      "condominios": 1029,
+      "estoqueM2": 42500000,
+      "precoM2": 0.5,
+      "usuarios": 50,
+      "usuariosAlto": 500,
+      "area": 41302.2351797862,
+      "receita": 20651.1175898931,
+      "casos": [
+        {
+          "caso": "melhor",
+          "apiMesBrl": 1.5962043125,
+          "apiMesBrlAlto": 15.962043125000001
+        },
+        {
+          "caso": "esperado",
+          "apiMesBrl": 2.9350495963541667,
+          "apiMesBrlAlto": 29.350495963541665
+        },
+        {
+          "caso": "pior",
+          "apiMesBrl": 6.94001875,
+          "apiMesBrlAlto": 69.4001875
+        }
+      ]
+    }
+  },
   "cenarios": [
     {
       "usuarios": 100,
@@ -132,33 +222,33 @@
         {
           "caso": "melhor",
           "solicitacoesSemana": 500,
-          "custoPorSolicitacaoBrl": 0.0015115504320000002,
-          "custoApiSemanaBrl": 0.7557752160000001,
-          "custoTotalSemanaBrl": 0.7557752160000001,
+          "custoPorSolicitacaoBrl": 0.0014693826000000002,
+          "custoApiSemanaBrl": 0.7346913,
+          "custoTotalSemanaBrl": 0.7346913,
           "resolucoesSemana": 425,
-          "custoPorResolucaoBrl": 0.001778294625882353,
+          "custoPorResolucaoBrl": 0.001728685411764706,
           "beneficioSemanaBrl": 0,
           "roi": -1
         },
         {
           "caso": "esperado",
           "solicitacoesSemana": 500,
-          "custoPorSolicitacaoBrl": 0.00277939074,
-          "custoApiSemanaBrl": 1.38969537,
-          "custoTotalSemanaBrl": 1.38969537,
+          "custoPorSolicitacaoBrl": 0.002701853875,
+          "custoApiSemanaBrl": 1.3509269375000001,
+          "custoTotalSemanaBrl": 1.3509269375000001,
           "resolucoesSemana": 425,
-          "custoPorResolucaoBrl": 0.0032698714588235297,
+          "custoPorResolucaoBrl": 0.003178651617647059,
           "beneficioSemanaBrl": 0,
           "roi": -1
         },
         {
           "caso": "pior",
           "solicitacoesSemana": 500,
-          "custoPorSolicitacaoBrl": 0.006571958399999999,
-          "custoApiSemanaBrl": 3.2859792,
-          "custoTotalSemanaBrl": 3.2859792,
+          "custoPorSolicitacaoBrl": 0.00638862,
+          "custoApiSemanaBrl": 3.19431,
+          "custoTotalSemanaBrl": 3.19431,
           "resolucoesSemana": 425,
-          "custoPorResolucaoBrl": 0.007731715764705882,
+          "custoPorResolucaoBrl": 0.0075160235294117654,
           "beneficioSemanaBrl": 0,
           "roi": -1
         }
@@ -170,33 +260,33 @@
         {
           "caso": "melhor",
           "solicitacoesSemana": 5000,
-          "custoPorSolicitacaoBrl": 0.0015115504320000002,
-          "custoApiSemanaBrl": 7.557752160000001,
-          "custoTotalSemanaBrl": 7.557752160000001,
+          "custoPorSolicitacaoBrl": 0.0014693826000000002,
+          "custoApiSemanaBrl": 7.346913000000001,
+          "custoTotalSemanaBrl": 7.346913000000001,
           "resolucoesSemana": 4250,
-          "custoPorResolucaoBrl": 0.001778294625882353,
+          "custoPorResolucaoBrl": 0.001728685411764706,
           "beneficioSemanaBrl": 0,
           "roi": -1
         },
         {
           "caso": "esperado",
           "solicitacoesSemana": 5000,
-          "custoPorSolicitacaoBrl": 0.00277939074,
-          "custoApiSemanaBrl": 13.896953700000001,
-          "custoTotalSemanaBrl": 13.896953700000001,
+          "custoPorSolicitacaoBrl": 0.002701853875,
+          "custoApiSemanaBrl": 13.509269375,
+          "custoTotalSemanaBrl": 13.509269375,
           "resolucoesSemana": 4250,
-          "custoPorResolucaoBrl": 0.0032698714588235297,
+          "custoPorResolucaoBrl": 0.003178651617647059,
           "beneficioSemanaBrl": 0,
           "roi": -1
         },
         {
           "caso": "pior",
           "solicitacoesSemana": 5000,
-          "custoPorSolicitacaoBrl": 0.006571958399999999,
-          "custoApiSemanaBrl": 32.859792,
-          "custoTotalSemanaBrl": 32.859792,
+          "custoPorSolicitacaoBrl": 0.00638862,
+          "custoApiSemanaBrl": 31.9431,
+          "custoTotalSemanaBrl": 31.9431,
           "resolucoesSemana": 4250,
-          "custoPorResolucaoBrl": 0.007731715764705882,
+          "custoPorResolucaoBrl": 0.007516023529411765,
           "beneficioSemanaBrl": 0,
           "roi": -1
         }
