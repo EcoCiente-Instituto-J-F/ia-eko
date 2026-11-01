@@ -37,13 +37,21 @@ class HealthService:
 
     async def check(self) -> dict[str, str]:
         services = await self.sessions.health()
-        services["rag"] = self.rag.health()
+        services["rag"] = await self._rag_health()
         services["llm"] = await self._llm_health()
         services["postgres"] = await self._postgres_health()
         services["calendar_api"] = await self._calendar_health()
         services["neo4j"] = await self._neo4j_health()
         services["qdrant"] = await self._qdrant_health()
         return services
+
+    async def _rag_health(self) -> str:
+        # Com FAQ_BACKEND=qdrant isto consulta o Qdrant; o limite evita que um
+        # servidor lento segure o /health.
+        try:
+            return await asyncio.wait_for(self.rag.health(), timeout=5)
+        except Exception:
+            return "error"
 
     async def _qdrant_health(self) -> str:
         # Com FAQ_BACKEND=qdrant o Qdrant É a fonte do FAQ: fora do ar = "error"
