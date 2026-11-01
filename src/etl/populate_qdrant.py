@@ -18,6 +18,13 @@ Cada execução:
 5. remove da coleção os FAQs canônicos que saíram do arquivo (só pontos com
    tipo=faq_canonica; qualquer outro conteúdo da coleção fica intacto).
 
+Depois dos FAQs, a mesma coleção recebe os trechos do RAG (tipo=rag_trecho):
+o .md inteiro cortado como no índice em memória e, com
+ENABLE_EXTERNAL_SOURCE=true, a página do SINIR. Mesma lógica incremental; se
+o SINIR não baixar (ou vier sem texto), os trechos antigos dele ficam como
+estão. Exceção: --recriar com o SINIR fora do ar deixa a coleção sem os
+trechos do SINIR até a próxima carga em que ele baixe.
+
 Uso:
     python -m src.etl.populate_qdrant                  # carga incremental
     python -m src.etl.populate_qdrant --dry-run        # só valida o arquivo
@@ -44,6 +51,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from src.core.config import Settings
 from src.security.roles import (
     COOPERATIVA,
@@ -57,7 +66,8 @@ from src.security.roles import (
 logger = logging.getLogger("ecociente.etl.qdrant")
 
 TIPO_FAQ = "faq_canonica"
-# Namespace fixo: o id do ponto depende só do faq_id.
+TIPO_TRECHO = "rag_trecho"
+# Namespace fixo: o id do ponto depende só do faq_id (ou de source#chunk).
 _NAMESPACE = uuid.UUID("5b1c6f0e-3f7a-4c52-9d0b-ec0c1e47a001")
 _SECAO = re.compile(r"^##\s+\d+\.\s+Perguntas Frequentes Can[oô]nicas\s*$", re.IGNORECASE)
 _ITEM = re.compile(r"^####\s+(FAQ-\d+)\s+[—–-]\s+(.+?)\s*$")
@@ -156,6 +166,49 @@ class FaqCanonico:
 def content_hash(payload: dict[str, Any]) -> str:
     relevante = {k: v for k, v in payload.items() if k != "content_hash"}
     return hashlib.sha256(json.dumps(relevante, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+
+
+@dataclass(frozen=True)
+class Trecho:
+    """Um trecho do RAG (pedaço do .md ou da página do SINIR), com os mesmos
+    metadados que o índice em memória do RAGService usa."""
+
+    title: str
+    source: str
+    url: str | None
+    kind: str
+    chunk: int
+    texto: str
+
+    @property
+    def point_id(self) -> str:
+        return str(uuid.uuid5(_NAMESPACE, f"trecho:{self.source}#{self.chunk}"))
+
+    def payload(self, embedding_model: str) -> dict[str, Any]:
+        base = {
+            "tipo": TIPO_TRECHO,
+            "title": self.title,
+            "source": self.source,
+            "url": self.url,
+            "kind": self.kind,
+            "chunk": self.chunk,
+            "texto": self.texto,
+            "embedding_model": embedding_model,
+        }
+        base["content_hash"] = content_hash(base)
+        return base
+
+
+def montar_trechos(
+    texto: str, *, settings: Settings, title: str, source: str, url: str | None, kind: str
+) -> list[Trecho]:
+    # Mesmo corte do índice em memória: os dois modos devolvem os mesmos trechos.
+    from src.services.rag_service import dividir_em_trechos
+
+    return [
+        Trecho(title=title, source=source, url=url, kind=kind, chunk=doc.metadata["chunk"], texto=doc.page_content)
+        for doc in dividir_em_trechos(texto, title=title, source=source, url=url, kind=kind, settings=settings)
+    ]
 
 
 class FaqParseError(ValueError):
@@ -298,24 +351,29 @@ class QdrantFaqLoader:
             )
         return int(size)
 
-    async def _hashes_existentes(self, faqs: list[FaqCanonico]) -> dict[str, str]:
-        pontos = await self.client.retrieve(
-            self.collection, ids=[faq.point_id for faq in faqs], with_payload=True, with_vectors=False
-        )
-        return {str(p.id): str((p.payload or {}).get("content_hash", "")) for p in pontos}
-
-    async def _faq_ids_na_colecao(self) -> dict[str, str]:
+    async def _garantir_indices(self) -> None:
+        """Índices KEYWORD de `tipo` e `source`, idempotentes: o Qdrant Cloud
+        (strict mode) pode rejeitar filtros em campos sem índice, inclusive em
+        coleções criadas por versões anteriores da carga."""
         from qdrant_client import models
 
-        filtro = models.Filter(must=[models.FieldCondition(key="tipo", match=models.MatchValue(value=TIPO_FAQ))])
-        encontrados: dict[str, str] = {}
+        for campo in ("tipo", "source"):
+            await self.client.create_payload_index(
+                self.collection, field_name=campo, field_schema=models.PayloadSchemaType.KEYWORD
+            )
+
+    async def _hashes_existentes(self, ids: list[str]) -> dict[str, str]:
+        pontos = await self.client.retrieve(self.collection, ids=ids, with_payload=True, with_vectors=False)
+        return {str(p.id): str((p.payload or {}).get("content_hash", "")) for p in pontos}
+
+    async def _ids_na_colecao(self, filtro: Any) -> list[str]:
+        encontrados: list[str] = []
         offset = None
         while True:
             pontos, offset = await self.client.scroll(
-                self.collection, scroll_filter=filtro, limit=256, offset=offset, with_payload=["faq_id"], with_vectors=False
+                self.collection, scroll_filter=filtro, limit=256, offset=offset, with_payload=False, with_vectors=False
             )
-            for ponto in pontos:
-                encontrados[str(ponto.id)] = str((ponto.payload or {}).get("faq_id"))
+            encontrados.extend(str(ponto.id) for ponto in pontos)
             if offset is None:
                 return encontrados
 
@@ -329,20 +387,70 @@ class QdrantFaqLoader:
     ) -> CargaResultado:
         from qdrant_client import models
 
+        modelo = self.settings.qdrant_embedding_model
+        filtro = models.Filter(must=[models.FieldCondition(key="tipo", match=models.MatchValue(value=TIPO_FAQ))])
+        return await self._sincronizar(
+            [(faq.point_id, faq.payload(modelo), faq.texto_embedding()) for faq in faqs],
+            recriar=recriar,
+            batch_size=batch_size,
+            filtro_remocao=filtro if remover_ausentes else None,
+        )
+
+    async def carregar_trechos(
+        self,
+        trechos: list[Trecho],
+        *,
+        fontes: set[str],
+        recriar: bool = False,
+        batch_size: int = 32,
+    ) -> CargaResultado:
+        """Trechos do RAG. Só remove os trechos ausentes cujo `source` está em
+        `fontes`: uma fonte que não foi lida nesta carga (ex.: SINIR fora do
+        ar) mantém os trechos antigos. `recriar` apaga a coleção INTEIRA,
+        inclusive os FAQs canônicos — o main só recria na carga dos FAQs."""
+        from qdrant_client import models
+
+        modelo = self.settings.qdrant_embedding_model
+        filtro = models.Filter(
+            must=[
+                models.FieldCondition(key="tipo", match=models.MatchValue(value=TIPO_TRECHO)),
+                models.FieldCondition(key="source", match=models.MatchAny(any=sorted(fontes))),
+            ]
+        )
+        return await self._sincronizar(
+            [(t.point_id, t.payload(modelo), t.texto) for t in trechos],
+            recriar=recriar,
+            batch_size=batch_size,
+            filtro_remocao=filtro if fontes else None,
+        )
+
+    async def _sincronizar(
+        self,
+        itens: list[tuple[str, dict[str, Any], str]],
+        *,
+        recriar: bool,
+        batch_size: int,
+        filtro_remocao: Any,
+    ) -> CargaResultado:
+        """Upsert incremental de (point_id, payload, texto do embedding) e
+        remoção dos pontos de `filtro_remocao` que não vieram em `itens`."""
+        from qdrant_client import models
+
         started = time.perf_counter()
-        resultado = CargaResultado(total=len(faqs))
+        resultado = CargaResultado(total=len(itens))
         modelo = self.settings.qdrant_embedding_model
 
         # Com --recriar, a coleção só é apagada DEPOIS que todos os embeddings
         # foram gerados: se o modelo falhar (download, memória, dimensão), a
         # coleção antiga continua servindo o chat.
         dimensao = None if recriar else await self._dimensao_colecao()
-        existentes = {} if dimensao is None else await self._hashes_existentes(faqs)
+        if dimensao is not None:
+            await self._garantir_indices()
+        existentes = {} if dimensao is None else await self._hashes_existentes([pid for pid, _, _ in itens])
 
-        pendentes: list[tuple[FaqCanonico, dict[str, Any]]] = []
-        for faq in faqs:
-            payload = faq.payload(modelo)
-            anterior = existentes.get(faq.point_id)
+        pendentes: list[tuple[str, dict[str, Any], str]] = []
+        for pid, payload, texto in itens:
+            anterior = existentes.get(pid)
             if anterior == payload["content_hash"]:
                 resultado.inalterados += 1
                 continue
@@ -350,12 +458,12 @@ class QdrantFaqLoader:
                 resultado.inseridos += 1
             else:
                 resultado.atualizados += 1
-            pendentes.append((faq, payload))
+            pendentes.append((pid, payload, texto))
 
         vetores: list[list[float]] = []
         for inicio in range(0, len(pendentes), batch_size):
             lote = pendentes[inicio : inicio + batch_size]
-            vetores.extend(await self._embed([faq.texto_embedding() for faq, _ in lote]))
+            vetores.extend(await self._embed([texto for _, _, texto in lote]))
 
         if vetores:
             tamanho = len(vetores[0])
@@ -371,27 +479,24 @@ class QdrantFaqLoader:
                     self.collection,
                     vectors_config=models.VectorParams(size=tamanho, distance=models.Distance.COSINE),
                 )
-                await self.client.create_payload_index(
-                    self.collection, field_name="tipo", field_schema=models.PayloadSchemaType.KEYWORD
-                )
+                await self._garantir_indices()
                 resultado.colecao_criada = True
                 dimensao = tamanho
             for inicio in range(0, len(pendentes), batch_size):
                 await self.client.upsert(
                     self.collection,
                     points=[
-                        models.PointStruct(id=faq.point_id, vector=vetor, payload=payload)
-                        for (faq, payload), vetor in zip(
+                        models.PointStruct(id=pid, vector=vetor, payload=payload)
+                        for (pid, payload, _), vetor in zip(
                             pendentes[inicio : inicio + batch_size], vetores[inicio : inicio + batch_size]
                         )
                     ],
                     wait=True,
                 )
 
-        if remover_ausentes and dimensao is not None:
-            validos = {faq.point_id for faq in faqs}
-            na_colecao = await self._faq_ids_na_colecao()
-            sobrando = [pid for pid in na_colecao if pid not in validos]
+        if filtro_remocao is not None and dimensao is not None:
+            validos = {pid for pid, _, _ in itens}
+            sobrando = [pid for pid in await self._ids_na_colecao(filtro_remocao) if pid not in validos]
             if sobrando:
                 await self.client.delete(
                     self.collection, points_selector=models.PointIdsList(points=sobrando), wait=True
@@ -431,10 +536,14 @@ async def testar_perguntas(settings: Settings, perguntas: list[str]) -> list[dic
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Carrega o FAQ canônico no Qdrant.")
+    parser = argparse.ArgumentParser(description="Carrega o FAQ canônico e os trechos do RAG no Qdrant.")
     parser.add_argument("--arquivo", default=None, help="Markdown da base (padrão: KNOWLEDGE_BASE_PATH)")
-    parser.add_argument("--recriar", action="store_true", help="apaga e recria a coleção (troca de modelo)")
-    parser.add_argument("--manter-ausentes", action="store_true", help="não remove FAQs que saíram do arquivo")
+    parser.add_argument(
+        "--recriar",
+        action="store_true",
+        help="apaga e recria a coleção (troca de modelo); com o SINIR fora do ar, os trechos dele só voltam na próxima carga",
+    )
+    parser.add_argument("--manter-ausentes", action="store_true", help="não remove FAQs/trechos que saíram da base")
     parser.add_argument("--dry-run", action="store_true", help="só valida o arquivo e mostra o resumo")
     parser.add_argument("--testar", nargs="+", metavar="PERGUNTA", help="consulta a coleção e mostra os scores")
     args = parser.parse_args(argv)
@@ -445,31 +554,71 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(asyncio.run(testar_perguntas(settings, args.testar)), ensure_ascii=False, indent=2))
         return 0
 
+    from src.services import rag_service
+
     caminho = Path(args.arquivo) if args.arquivo else settings.knowledge_base_file
+    texto = caminho.read_text(encoding="utf-8")
     try:
-        faqs = parse_faq_canonicas(caminho.read_text(encoding="utf-8"))
+        faqs = parse_faq_canonicas(texto)
     except FaqParseError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    # Mesmo `source` que o índice em memória usa, para as citações não mudarem.
+    fonte_local = Path(args.arquivo or settings.knowledge_base_path).as_posix()
+    trechos = montar_trechos(
+        texto, settings=settings, title=rag_service.TITULO_BASE_LOCAL, source=fonte_local, url=None, kind="local"
+    )
 
     if args.dry_run:
+        # Offline: o SINIR só é baixado na carga de verdade.
         restritos = sum(1 for faq in faqs if faq.perfis_relacionados)
-        print(json.dumps({"arquivo": str(caminho), "faqs": len(faqs), "restritos_por_perfil": restritos}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"arquivo": str(caminho), "faqs": len(faqs), "restritos_por_perfil": restritos, "trechos": len(trechos)},
+                ensure_ascii=False,
+            )
+        )
         return 0
 
-    async def _run() -> CargaResultado:
+    async def _run() -> dict[str, Any]:
+        fontes = {fonte_local}
+        if settings.enable_external_source:
+            url = settings.external_source_url
+            try:
+                externo = await rag_service.baixar_fonte_externa(settings)
+                if not externo.strip():
+                    # 200 sem texto (ex.: página só de JS): sem trechos, a fonte
+                    # entraria em `fontes` vazia e apagaria tudo o que já foi indexado.
+                    raise ValueError("página sem texto")
+            except (httpx.HTTPError, TimeoutError, OSError, ValueError) as exc:
+                # Sem a página, os trechos antigos do SINIR ficam como estão.
+                logger.warning("SINIR indisponível (%s: %s); trechos antigos mantidos.", type(exc).__name__, exc)
+            else:
+                fontes.add(url)
+                trechos.extend(
+                    montar_trechos(
+                        externo, settings=settings, title=settings.external_source_title, source=url, url=url, kind="external"
+                    )
+                )
+        else:
+            # Flag desligada: a fonte entra sem trechos e os já indexados do SINIR
+            # são removidos (como na memória, onde desligar esconde o SINIR).
+            fontes.add(settings.external_source_url)
         loader = QdrantFaqLoader(settings)
         try:
-            return await loader.carregar(faqs, recriar=args.recriar, remover_ausentes=not args.manter_ausentes)
+            # FAQs primeiro: é a carga que pode recriar a coleção.
+            r_faqs = await loader.carregar(faqs, recriar=args.recriar, remover_ausentes=not args.manter_ausentes)
+            r_trechos = await loader.carregar_trechos(trechos, fontes=set() if args.manter_ausentes else fontes)
+            return {"faqs": r_faqs.as_dict(), "trechos": r_trechos.as_dict()}
         finally:
             await loader.close()
 
     try:
-        resultado = asyncio.run(_run())
+        resumo = asyncio.run(_run())
     except DimensaoIncompativel as exc:
         print(str(exc), file=sys.stderr)
         return 3
-    print(json.dumps(resultado.as_dict(), ensure_ascii=False))
+    print(json.dumps(resumo, ensure_ascii=False))
     return 0
 
 
