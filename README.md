@@ -61,7 +61,7 @@ O projeto está em desenvolvimento ativo:
 - [x] Tracing de LLM com Langfuse (self-hosted) ou LangSmith, com dados pessoais mascarados
 - [x] Cota diária por perfil, limite por minuto e lock da sessão no Redis entre réplicas
 - [x] Endpoint SSE `/api/v1/chat/stream` com progresso do pipeline
-- [x] FAQ por busca vetorial no Qdrant (`FAQ_BACKEND=qdrant`), respondendo com texto curado e sem chamar LLM
+- [x] Base de conhecimento no Qdrant (padrão, `FAQ_BACKEND=qdrant`): FAQ com texto curado e sem LLM, e trechos do RAG na mesma coleção
 - [x] ETL do grafo PostgreSQL → Neo4j incremental e agendado, validado em PostgreSQL 16 com até 1,8 mi de votos
 - [x] Evals de roteamento (`python -m evals.routing.run`) com acurácia, F1 por rota e matriz de confusão
 - [x] Servidor A2A e servidor MCP para integração com outros agentes
@@ -77,8 +77,8 @@ O projeto está em desenvolvimento ativo:
 - Python `3.11` ou superior
 - PostgreSQL `14+`, MongoDB e Redis (podem subir via Docker)
 - Neo4j `5+` (opcional — só é necessário para o especialista `grafo`; a API sobe sem ele)
-- Qdrant (opcional — só com `FAQ_BACKEND=qdrant`)
-- Ollama rodando localmente (provider padrão de LLM/embeddings) **ou** uma chave Groq/Gemini/DeepSeek
+- Qdrant (obrigatório no padrão `FAQ_BACKEND=qdrant`; com `FAQ_BACKEND=rag` a base fica em memória e o Qdrant é dispensável)
+- Uma chave da DeepSeek (provider padrão de LLM) **ou** Groq/Gemini, ou o Ollama local. O Ollama continua sendo o provider padrão de embeddings do RAG
 - Docker e Docker Compose, se for usar os bancos em contêiner
 
 ## Instalando
@@ -105,7 +105,8 @@ pip install -r requirements.txt
 ```
 
 > Para usar Groq, Gemini ou DeepSeek como provider de LLM, instale `requirements-optional.txt`
-> no lugar (ele já inclui o `requirements.txt` base).
+> no lugar (ele já inclui o `requirements.txt` base). `qdrant-client` e `fastembed` (padrão
+> `FAQ_BACKEND=qdrant`) já estão no `requirements.txt`.
 
 Configure as variáveis de ambiente:
 
@@ -119,13 +120,15 @@ cp .env.example .env           # Windows: copy .env.example .env
 | Variável | Padrão | Descrição |
 | --- | --- | --- |
 | `APP_ENV` | `development` | `development`, `test` ou `production` |
-| `LLM_PROVIDER` | `ollama` | `ollama`, `groq`, `gemini`, `deepseek` ou `mock` (sem custo de API, usado nos testes) |
+| `LLM_PROVIDER` | `deepseek` | `ollama`, `groq`, `gemini`, `deepseek` ou `mock` (sem custo de API, usado nos testes) |
 | `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | `http://localhost:11434` / `qwen3:4b` | LLM local via Ollama |
 | `POSTGRES_URL` | — | Fonte de verdade dos dados analíticos (consultada só para leitura) |
 | `MONGODB_URI` / `MONGODB_DATABASE` | `mongodb://localhost:27017` / `ecociente` | Memória conversacional das sessões |
 | `REDIS_URL` | `redis://localhost:6379/0` | Ranking, ponteiro de sessão, cotas de uso e lock da sessão |
 | `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | `bolt://localhost:7687` / `neo4j` | Camada de relacionamentos do especialista `grafo` (opcional) |
-| `KNOWLEDGE_BASE_PATH` | `data/FAQ_KNOWLEDGE_BASE.md` | Base RAG dos especialistas `faq` e `educacional` |
+| `FAQ_BACKEND` | `qdrant` | `qdrant`: FAQ e trechos do RAG vêm do Qdrant, com carga manual (`python -m src.etl.populate_qdrant`); `rag`: tudo em memória, para testes e desenvolvimento sem Qdrant. Veja "Base de conhecimento no Qdrant" |
+| `QDRANT_URL` / `QDRANT_API_KEY` | — | Endpoint e chave do Qdrant (obrigatórios com `FAQ_BACKEND=qdrant`) |
+| `KNOWLEDGE_BASE_PATH` | `data/FAQ_KNOWLEDGE_BASE.md` | Arquivo-fonte da base: lido pelo RAG em memória (`FAQ_BACKEND=rag`) e pela carga do Qdrant (`populate_qdrant`) |
 | `CALENDAR_API_BASE_URL` | `http://localhost:9800` | API externa de coletas, consumida via MCP |
 | `AUTH_API_URL` | — | API externa que valida o token e devolve os dados do usuário |
 | `JUDGE_MAX_CORRECTIONS` | `1` | Quantas vezes o juiz de saída pode pedir correção |
@@ -258,9 +261,17 @@ usuários/semana a partir das médias medidas e das premissas do `.env`; sem dad
 | Prometheus/Grafana | Quanto e quão rápido: latência por agente, taxa de reprovação do juiz, tokens/min, recusas por limite, índice de erros, custo por resolução |
 | Langfuse/LangSmith | O que aconteceu nesta conversa: prompt, resposta, tokens e decisão de cada agente |
 
-### FAQ via Qdrant (sem LLM)
+### Base de conhecimento no Qdrant
 
-Com `FAQ_BACKEND=qdrant`, o especialista `faq` não chama LLM:
+`FAQ_BACKEND=qdrant` é o padrão. A API **não indexa nada ao subir**: o FAQ e o RAG (especialista
+`educacional`, etapa de correção e servidor A2A) consultam a coleção `QDRANT_COLLECTION`, que guarda
+as FAQs canônicas (`tipo=faq_canonica`) e os trechos da base (`tipo=rag_trecho`, de
+`data/FAQ_KNOWLEDGE_BASE.md` e, com `ENABLE_EXTERNAL_SOURCE=true`, do SINIR). Com o Qdrant fora do ar
+(ou a coleção sem trechos) a resposta diz que a base não tem evidência suficiente e o `/health`
+mostra `rag: error`. `FAQ_BACKEND=rag` mantém o fluxo antigo, tudo em memória, útil em testes e em
+desenvolvimento sem Qdrant.
+
+O especialista `faq` não chama LLM:
 
 1. A pergunta vira embedding localmente (`fastembed`, `intfloat/multilingual-e5-large`,
    prefixo `query:`). Nenhuma chamada de API é feita nessa etapa.
@@ -280,8 +291,9 @@ QDRANT_COLLECTION=faq
 QDRANT_MIN_SCORE=0.80
 ```
 
-Carga da coleção a partir da seção "Perguntas Frequentes Canônicas" de
-`data/FAQ_KNOWLEDGE_BASE.md` (64 FAQs `FAQ-NNN`):
+A carga é **manual** e nunca roda sozinha (nem no startup, nem em CronJob, nem na CI). Rode-a
+uma vez ao configurar o ambiente, e de novo ao editar `data/FAQ_KNOWLEDGE_BASE.md` ou para
+atualizar o SINIR. Ela indexa as FAQs canônicas (64 `FAQ-NNN`) e os trechos da base:
 
 ```bash
 python -m src.etl.populate_qdrant --dry-run      # valida o arquivo, não toca no Qdrant
@@ -289,9 +301,10 @@ python -m src.etl.populate_qdrant                # cria/atualiza a coleção
 python -m src.etl.populate_qdrant --testar "como faço login?" "posso apagar minha conta?"
 ```
 
-A carga é idempotente (id do ponto derivado do `faq_id`), só gera embedding do que mudou (hash
-no payload) e remove da coleção os FAQs que saíram do arquivo. Rode de novo sempre que a base
-mudar.
+A carga é idempotente, só gera embedding do que mudou (hash no payload) e remove da coleção o que
+saiu do arquivo. `--recriar` apaga a coleção antes; se o SINIR estiver fora do ar nessa hora, ficam
+sem trechos do SINIR até a próxima carga bem-sucedida. Com `ENABLE_EXTERNAL_SOURCE=false`, a carga
+remove os trechos do SINIR já indexados.
 
 > [!WARNING]
 > O modelo de embedding (`QDRANT_EMBEDDING_MODEL`, ~2,2 GB, baixado no primeiro uso) tem que ser
@@ -366,7 +379,7 @@ que não passam pelo juiz LLM).
 
 | Agente | Fonte de dados | Quando responde |
 | --- | --- | --- |
-| `faq` | RAG sobre `data/FAQ_KNOWLEDGE_BASE.md`, ou Qdrant sem LLM (`FAQ_BACKEND=qdrant`) | Regras, políticas e limites do assistente |
+| `faq` | Qdrant sem LLM (padrão, `FAQ_BACKEND=qdrant`), ou RAG em memória sobre `data/FAQ_KNOWLEDGE_BASE.md` (`FAQ_BACKEND=rag`) | Regras, políticas e limites do assistente |
 | `educacional` | RAG sobre a mesma base + fonte externa (SINIR) | Separação de resíduos, compostagem, sustentabilidade |
 | `analytics` | PostgreSQL (leitura) + Redis (ranking) | Pontos, desempenho, métricas e comparações — sempre que a resposta é um número ou série |
 | `coletas` | API externa de calendário via MCP | Agendamento, recorrência e confirmação de coleta |
@@ -375,7 +388,7 @@ que não passam pelo juiz LLM).
 O agente `grafo` existe porque perguntas como *"quais moradores mais influenciam a reciclagem
 do condomínio?"* não são respondidas por uma agregação SQL — elas pedem a topologia da rede de
 relacionamentos (`Usuario`, `Condominio`, `Torre`, `Cooperativa`, `CategoriaResiduo`, `Curso`,
-`Postagem` e relações como `MORA_EM`, `PERTENCE_A`, `CRIOU`, `VALIDOU`, `DENUNCIOU`,
+`Postagem` e relações como `MORA_EM`, `MORA_NA`, `PERTENCE_A`, `CRIOU`, `VALIDOU`, `DENUNCIOU`,
 `TEM_DIFICULDADE_EM` e `RECOMENDADO_PARA`). O vocabulário fica em um lugar só
 (`src/etl/graph_model.py`), usado pelo ETL e pela whitelist das tools; as queries Cypher
 expostas ao LLM estão em `src/agents/graph_traversal/tools.py`.
@@ -413,7 +426,7 @@ Decisões arquiteturais em `docs/ARQUITETURA.md`.
 ## Testes
 
 ```bash
-LLM_PROVIDER=mock EMBEDDING_PROVIDER=mock STORAGE_MODE=memory ENABLE_EXTERNAL_SOURCE=false pytest
+LLM_PROVIDER=mock EMBEDDING_PROVIDER=mock STORAGE_MODE=memory ENABLE_EXTERNAL_SOURCE=false FAQ_BACKEND=rag pytest
 ```
 
 A suíte roda em `LLM_PROVIDER=mock` (sem custo de API — respostas determinísticas simulam cada
