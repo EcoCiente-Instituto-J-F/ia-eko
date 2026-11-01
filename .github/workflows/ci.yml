@@ -48,4 +48,5 @@ jobs:
           ALLOW_STORAGE_FALLBACK: "true"
           ENABLE_EXTERNAL_SOURCE: "false"
           RUN_INTEGRATION_TESTS: "false"
+          FAQ_BACKEND: rag
         run: python -m pytest -q
