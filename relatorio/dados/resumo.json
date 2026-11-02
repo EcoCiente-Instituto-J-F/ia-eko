@@ -1,5 +1,5 @@
 {
-  "gerado_em": "2026-11-01T16:39:17.046Z",
+  "gerado_em": "2026-11-02T18:13:21.294Z",
   "cotacao": {
     "usdBrl": 5.4325,
     "data": "30/10/2026"
@@ -31,6 +31,28 @@
       "p99": 165.99,
       "erro": 0,
       "rps": 81.56
+    }
+  },
+  "benchDeepseek": {
+    "c1": {
+      "requisicoes": 28,
+      "concorrencia": 1,
+      "media": 7382.43,
+      "mediana": 6654.98,
+      "p95": 8352.76,
+      "p99": 52258.74,
+      "erro": 3.5714,
+      "rps": 0.14
+    },
+    "c10": {
+      "requisicoes": 28,
+      "concorrencia": 10,
+      "media": 5017.66,
+      "mediana": 6006.6,
+      "p95": 8235.88,
+      "p99": 8456.41,
+      "erro": 0,
+      "rps": 1.54
     }
   },
   "chat": {
