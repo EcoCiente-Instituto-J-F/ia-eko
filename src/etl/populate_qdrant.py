@@ -357,7 +357,7 @@ class QdrantFaqLoader:
         coleções criadas por versões anteriores da carga."""
         from qdrant_client import models
 
-        for campo in ("tipo", "source"):
+        for campo in ("tipo", "source", "kind"):
             await self.client.create_payload_index(
                 self.collection, field_name=campo, field_schema=models.PayloadSchemaType.KEYWORD
             )
@@ -569,19 +569,35 @@ def main(argv: list[str] | None = None) -> int:
         texto, settings=settings, title=rag_service.TITULO_BASE_LOCAL, source=fonte_local, url=None, kind="local"
     )
 
+    edu_arquivo = settings.educational_base_file
+    fonte_edu = Path(settings.educational_base_path).as_posix()
+    if edu_arquivo.exists():
+        trechos.extend(
+            montar_trechos(
+                edu_arquivo.read_text(encoding="utf-8"),
+                settings=settings,
+                title=rag_service.TITULO_BASE_EDUCATIVA,
+                source=fonte_edu,
+                url=None,
+                kind=rag_service.KIND_EDUCATIVO,
+            )
+        )
+    else:
+        print(f"Aviso: guia educacional não encontrado em {edu_arquivo}; o Educacional ficará sem base.", file=sys.stderr)
+
     if args.dry_run:
         # Offline: o SINIR só é baixado na carga de verdade.
         restritos = sum(1 for faq in faqs if faq.perfis_relacionados)
         print(
             json.dumps(
-                {"arquivo": str(caminho), "faqs": len(faqs), "restritos_por_perfil": restritos, "trechos": len(trechos)},
+                {"arquivo": str(caminho), "faqs": len(faqs), "restritos_por_perfil": restritos, "trechos": len(trechos), "trechos_educativos": sum(1 for t in trechos if t.kind == rag_service.KIND_EDUCATIVO)},
                 ensure_ascii=False,
             )
         )
         return 0
 
     async def _run() -> dict[str, Any]:
-        fontes = {fonte_local}
+        fontes = {fonte_local, fonte_edu}
         if settings.enable_external_source:
             url = settings.external_source_url
             try:

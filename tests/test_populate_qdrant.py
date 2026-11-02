@@ -324,7 +324,7 @@ def test_e5_uses_passage_prefix_for_documents_and_query_for_questions() -> None:
 def test_cli_dry_run_and_invalid_file(tmp_path, capsys) -> None:
     assert main(["--dry-run", "--arquivo", str(KB)]) == 0
     saida = capsys.readouterr().out
-    assert '"faqs": 64' in saida and f'"trechos": {len(_trechos_locais())}' in saida
+    assert '"faqs": 64' in saida and f'"trechos": {len(_trechos_locais()) + len(_trechos_educativos())}' in saida
     ruim = tmp_path / "ruim.md"
     ruim.write_text("# sem FAQ", encoding="utf-8")
     assert main(["--dry-run", "--arquivo", str(ruim)]) == 2
@@ -351,6 +351,18 @@ def _trechos_locais() -> list[Trecho]:
     settings = _settings()
     return montar_trechos(
         KB.read_text(encoding="utf-8"), settings=settings, title="FAQ EcoCiente", source="md", url=None, kind="local"
+    )
+
+
+def _trechos_educativos() -> list[Trecho]:
+    settings = _settings()
+    return montar_trechos(
+        settings.educational_base_file.read_text(encoding="utf-8"),
+        settings=settings,
+        title="Guia Educacional EcoCiente",
+        source=settings.educational_base_path,
+        url=None,
+        kind="educativo",
     )
 
 
@@ -434,7 +446,7 @@ def test_cli_loads_faqs_then_chunks_and_keeps_sinir_when_download_fails(monkeypa
     monkeypatch.setattr(rag_service, "baixar_fonte_externa", _sinir_ok)
     assert main(["--arquivo", str(KB)]) == 0
     resumo = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    n_local = len(_trechos_locais())
+    n_local = len(_trechos_locais()) + len(_trechos_educativos())
     assert resumo["faqs"]["inseridos"] == 64 and resumo["trechos"]["inseridos"] == n_local + 1
 
     async def _sinir_fora(_settings):
@@ -495,7 +507,7 @@ def test_cli_with_external_source_disabled_purges_old_sinir_chunks(monkeypatch, 
     monkeypatch.setattr(rag_service, "baixar_fonte_externa", _sinir_ok)
     assert main(["--arquivo", str(KB)]) == 0
     capsys.readouterr()
-    n_local = len(_trechos_locais())
+    n_local = len(_trechos_locais()) + len(_trechos_educativos())
     assert _contar(client, TIPO_TRECHO) == n_local + 1
 
     estado["settings"] = _settings(enable_external_source=False, external_source_url=url)
