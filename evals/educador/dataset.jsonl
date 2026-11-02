@@ -1,0 +1,12 @@
+{"id": "e01", "mensagem": "Isopor é reciclável?", "termo_esperado": "isopor"}
+{"id": "e02", "mensagem": "Caixa de pizza engordurada vai no papel?", "termo_esperado": "gordura"}
+{"id": "e03", "mensagem": "Como separar vidro quebrado com segurança?", "termo_esperado": "embrulhe"}
+{"id": "e04", "mensagem": "Onde descarto pilhas e baterias?", "termo_esperado": "logística reversa"}
+{"id": "e05", "mensagem": "Óleo de cozinha usado pode ir pelo ralo?", "termo_esperado": "nunca jogue"}
+{"id": "e06", "mensagem": "Como começar uma composteira no apartamento?", "termo_esperado": "composteira"}
+{"id": "e07", "mensagem": "Embalagem longa vida é papel ou plástico?", "termo_esperado": "camadas"}
+{"id": "e08", "mensagem": "Tampinha de garrafa vai junto com a garrafa PET?", "termo_esperado": "tampinha"}
+{"id": "e09", "mensagem": "Preciso lavar as embalagens antes de descartar?", "termo_esperado": "enxaguar"}
+{"id": "e10", "mensagem": "Qual a diferença entre lixo orgânico e rejeito?", "termo_esperado": "rejeito"}
+{"id": "e11", "mensagem": "Como reciclar papel?", "termo_esperado": "papelão"}
+{"id": "e12", "mensagem": "Como descarto remédios vencidos?", "termo_esperado": "farmácia"}
