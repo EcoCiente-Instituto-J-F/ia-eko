@@ -347,6 +347,38 @@ by the infrastructure team in
 
 ## How it works
 
+### Architecture overview
+
+<p align="center">
+  <img src="assets/arquitetura-fluxo-agentes.png" alt="Architecture diagram: EcoCiente IA agent flow, specialists, message path, where each piece of data lives, and integrations/deployment" width="100%">
+</p>
+
+The diagram (in Portuguese) shows a message's path from the app to the delivered answer (steps 1 to 10):
+
+1. **App / API:** `POST /api/v1/chat` or SSE on `/api/v1/chat/stream`, with a Bearer token.
+2. **Input:** daily quota, per-minute limit and session lock in Redis; fixed rules and an LLM
+   input judge (prompt injection, third-party data, fraud). A block goes straight to the safe
+   output.
+3. **Memory:** loads the conversation and long-term memory from MongoDB; past 20 messages, it
+   summarizes and saves back.
+4. **Orchestrator:** picks 1 of 5 specialists and checks that the user's profile may use it.
+   Without permission, it goes to the safe output.
+5. **Specialists:** `faq` (Qdrant, no LLM), `educacional` (Qdrant + SINIR/A2A), `analytics`
+   (PostgreSQL + Redis), `coletas` (calendar via MCP) and `grafo` (Neo4j).
+6. **Output judge:** checks the draft against the evidence consulted and may request one
+   correction (re-evaluated once). The canonical FAQ and `coletas` skip the judge.
+7. **Output:** strips secrets, masks traces (CPF, e-mail, phone, tokens) and delivers to the app.
+
+Each piece of data has one owner: **PostgreSQL** is the source of truth (the AI only reads),
+**MongoDB** keeps the history, **Redis** keeps ranking, session pointer, quotas and lock,
+**Neo4j** keeps relationships and **Qdrant** keeps the FAQ and RAG passages. For deployment,
+Docker Compose runs the API, Prometheus and Grafana; the databases live outside it. On
+Kubernetes, the `ecociente` namespace runs the API and the Neo4j CronJobs (incremental every
+15 min, full at 03:00). With Qdrant down, the chat keeps answering, the FAQ says there is not
+enough evidence, and `/health` shows `rag: error`.
+
+The diagram below details the same steps as the LangGraph flow.
+
 ### Message pipeline
 
 ```mermaid

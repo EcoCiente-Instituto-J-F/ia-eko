@@ -346,6 +346,38 @@ mantido pela equipe de infraestrutura em
 
 ## Como funciona
 
+### Visão geral da arquitetura
+
+<p align="center">
+  <img src="assets/arquitetura-fluxo-agentes.png" alt="Desenho de arquitetura: fluxo dos agentes do EcoCiente IA, especialistas, caminho de uma mensagem, onde cada dado mora e integrações/implantação" width="100%">
+</p>
+
+O desenho mostra o caminho de uma mensagem do app até a resposta entregue (etapas 1 a 10):
+
+1. **App / API:** `POST /api/v1/chat` ou SSE em `/api/v1/chat/stream`, com token Bearer.
+2. **Entrada:** cota diária, limite por minuto e lock da sessão no Redis; regras fixas e juiz
+   LLM de entrada (prompt injection, dado de terceiro, fraude). Se bloquear, vai direto para a
+   saída segura.
+3. **Memória:** carrega a conversa e a memória longa do MongoDB; com mais de 20 mensagens,
+   resume e salva de volta.
+4. **Orquestrador:** escolhe 1 de 5 especialistas e confere se o perfil pode usá-lo. Sem
+   permissão, vai para a saída segura.
+5. **Especialistas:** `faq` (Qdrant, sem LLM), `educacional` (Qdrant + SINIR/A2A),
+   `analytics` (PostgreSQL + Redis), `coletas` (calendário via MCP) e `grafo` (Neo4j).
+6. **Juiz de saída:** confere o rascunho contra as evidências consultadas e pode pedir uma
+   correção (reavalia 1 vez). O FAQ canônico e as coletas pulam o juiz.
+7. **Saída:** remove segredos, mascara traces (CPF, e-mail, telefone, tokens) e entrega ao app.
+
+Cada dado tem um dono: **PostgreSQL** é a fonte oficial (a IA só lê), **MongoDB** guarda o
+histórico, **Redis** guarda ranking, ponteiro de sessão, cotas e lock, **Neo4j** guarda as
+relações e **Qdrant** guarda o FAQ e os trechos do RAG. Na implantação, o Docker Compose sobe a
+API, o Prometheus e o Grafana; os bancos ficam fora dele. No Kubernetes, o namespace `ecociente`
+roda a API e os CronJobs do Neo4j (incremental a cada 15 min, full às 03:00). Com o Qdrant fora do
+ar, o chat continua respondendo, o FAQ avisa que não há evidência suficiente e o `/health` mostra
+`rag: error`.
+
+O diagrama abaixo detalha as mesmas etapas como fluxo do grafo LangGraph.
+
 ### Pipeline de uma mensagem
 
 ```mermaid
