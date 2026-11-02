@@ -37,6 +37,10 @@ function bench(arquivo) {
 }
 const b1 = bench("bench-c1.txt");
 const b10 = bench("bench-c10.txt");
+// Mesma medição com a DeepSeek real (deepseek-flash), 28 requisições por cenário.
+const d1 = bench("bench-deepseek-c1.txt");
+const d10 = bench("bench-deepseek-c10.txt");
+const seg = (ms) => (ms / 1000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const snap = normalizar(readFileSync(join(dados, "metrics.txt"), "utf8"), Date.now());
 const custosBackend = JSON.parse(readFileSync(join(dados, "costs.json"), "utf8"));
 
@@ -251,15 +255,15 @@ const resumo = pg(
 <div class="a" style="left:60px;top:104px;width:980px"><div class="grande">O resumo em cinco números</div><p class="sub" style="margin-top:14px">Cada cartão responde a um requisito do trabalho. As páginas seguintes mostram como chegamos a cada um.</p></div>
 <div class="cinco">
   ${cartao("g-rosa", "Custo estimado", bigBrl(brl(exp100.custoApiSemanaBrl)), "por semana · 100 usuários", `Com 1.000 usuários: <b>${brl(exp1000.custoApiSemanaBrl)}</b>. Caso esperado, só API. Infraestrutura na AWS: <b>${brl(INFRA_SEMANA_BRL)}</b> por semana.`, ["estimado"])}
-  ${cartao("g-verde", "Tempo de resposta", `${fmt(b10.p95, 0)}<span class="u">ms</span>`, "p95 · 10 simultâneas", `Com o LLM simulado: é o piso do sistema. Uma por vez: ${fmt(b1.p95, 0)} ms. Com a DeepSeek: a medir.`, ["medido", "amedir"])}
-  ${cartao("g-azul", "Índice de erros", `${snap.http.erros5xx}<span class="u">de</span>${inteiro(chat.n)}`, "falhas 5xx no teste", `Com o LLM simulado, que nunca falha. A taxa em produção depende da DeepSeek: a medir.`, ["medido", "amedir"])}
+  ${cartao("g-verde", "Tempo de resposta", `${seg(d10.p95)}<span class="u">s</span>`, "p95 · 10 simultâneas · DeepSeek", `Uma por vez: ${seg(d1.p95)} s. Sem o modelo (LLM simulado), o sistema leva ${fmt(b10.p95, 0)} ms: quase todo o tempo é do modelo.`, ["medido"])}
+  ${cartao("g-azul", "Índice de erros", `1<span class="u">de</span>${d1.requisicoes + d10.requisicoes}`, "falhas 5xx · DeepSeek", `A falha foi o Neo4j sem resposta (DNS), não o modelo. Com o LLM simulado: ${snap.http.erros5xx} de ${inteiro(chat.n)}.`, ["medido"])}
   ${cartao("g-rosa", "Custo por resolução", bigBrl(brl(exp100.custoPorResolucaoBrl)), "por resolução · caso esperado", `Só API, com ${pct(PREM.resolucao, 0)} de resolução assumida. Infraestrutura fora da conta.`, ["estimado"])}
   ${cartao("g-verde", "Custo/retorno (ROI)", `${sinal(roiCondo(sMed.benef))}`, "por condomínio · com infra", `Benefício: tempo do síndico liberado, ${brl(sMed.benef)} por mês. Com síndico morador, ${sinal(roiCondo(sMor.benef))}; com profissional, ${sinal(roiCondo(sProf.benef))}.`, ["estimado", "premissa"])}
 </div>
 <div class="nao">
   <div class="sig"><div class="rot">O que este relatório não afirma</div><p>Três limites que valem para todos os números.</p></div>
   <ul class="lista">
-    <li>Que a resposta com a DeepSeek terá a latência medida aqui: o LLM foi simulado, então os tempos são do sistema sem o modelo.</li>
+    <li>Que o tempo e o índice de erros com a DeepSeek são firmes: vêm de 28 requisições por cenário, e a API de calendário estava fora do ar.</li>
     <li>Que a taxa de resolução é de ${pct(snap.chats.resolvidas / respostas, 0)}: o juiz simulado aprova tudo. A taxa das contas, ${pct(PREM.resolucao, 0)}, é uma premissa.</li>
     <li>Que o benefício é exato: ele depende de quanto do tempo do síndico vai em dúvidas, que não tem fonte. A infraestrutura vem do Terraform e do preço de lista da AWS.</li>
   </ul>
@@ -345,31 +349,31 @@ const lat1 = pg(
   `${abre(6)}
 <div class="a c1 l1">
   <h2>Tempo total de resposta ${tag("medido")}</h2>
-  <p class="sub"><span class="m">Sem o modelo, o sistema responde em ${fmt(b1.mediana, 0)} ms  (mediana, uma requisição por vez).</span></p>
+  <p class="sub"><span class="m">Com a DeepSeek, a mediana é de ${seg(d1.mediana)} s (uma por vez). Sem o modelo, o sistema responde em ${fmt(b1.mediana, 0)} ms.</span></p>
 </div>
 <div class="stat dupla g-verde">
-  <div class="rot">p95 do tempo total · LLM simulado</div>
-  <div class="par"><div class="big">${fmt(b1.p95, 0)}<span class="u">ms</span></div><div class="cap">uma requisição por vez · ${b1.requisicoes} requisições</div></div>
-  <div class="par"><div class="big">${fmt(b10.p95, 0)}<span class="u">ms</span></div><div class="cap">10 simultâneas · ${b10.requisicoes} requisições</div></div>
+  <div class="rot">p95 do tempo total · DeepSeek real</div>
+  <div class="par"><div class="big">${seg(d1.p95)}<span class="u">s</span></div><div class="cap">uma requisição por vez · ${d1.requisicoes} requisições</div></div>
+  <div class="par"><div class="big">${seg(d10.p95)}<span class="u">s</span></div><div class="cap">10 simultâneas · ${d10.requisicoes} requisições</div></div>
 </div>
 <div class="a c3 l1 corpo">
-  <p>As medições vieram do sistema real rodando com o <strong>LLM simulado</strong> (<span class="v">LLM_PROVIDER=mock</span>): o modelo responde na hora.</p>
-  <p>Elas mostram o custo de tempo do próprio sistema: guardrails, memória, roteamento, juiz e serialização. O tempo esperando a DeepSeek <strong>não</strong> está incluído ${tag("amedir")}.</p>
+  <p>Duas medições do sistema real: com a <strong>DeepSeek</strong> (<span class="v">deepseek-flash</span>, sem thinking) e com o <strong>LLM simulado</strong> (<span class="v">LLM_PROVIDER=mock</span>), que responde na hora.</p>
+  <p>O mock mostra o custo de tempo do próprio sistema: guardrails, memória, roteamento, juiz e serialização. A diferença para a DeepSeek é o tempo do modelo.</p>
 </div>
-<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>Estes tempos são um piso. O usuário só vai sentir a latência real quando o modelo da DeepSeek entrar na conta.</p></div>
+<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>O usuário espera de 6 a 8 s por resposta. O sistema em si gasta ${fmt(b1.mediana, 0)} ms: o gargalo é o modelo.</p></div>
 <div class="a c23 l2">
   <table>
     <thead><tr><th></th><th class="v">Média</th><th class="v">Mediana</th><th class="v">p95</th><th class="v">p99</th><th class="v">Erros</th><th class="v">Vazão</th></tr></thead>
     <tbody>
-      ${[b1, b10]
+      ${[d1, d10, b1, b10]
         .map(
-          (b) =>
-            `<tr><th scope="row">${b.concorrencia === 1 ? "Uma por vez" : `${b.concorrencia} simultâneas`}</th><td class="v">${fmt(b.media, 1)} ms</td><td class="v">${fmt(b.mediana, 1)} ms</td><td class="v">${fmt(b.p95, 1)} ms</td><td class="v">${fmt(b.p99, 1)} ms</td><td class="v">${fmt(b.erro, 2)}%</td><td class="v">${fmt(b.rps, 1)} req/s</td></tr>`,
+          (b, i) =>
+            `<tr><th scope="row">${i < 2 ? "DeepSeek" : "LLM simulado"} · ${b.concorrencia === 1 ? "uma por vez" : `${b.concorrencia} simultâneas`}</th><td class="v">${fmt(b.media, 0)} ms</td><td class="v">${fmt(b.mediana, 0)} ms</td><td class="v">${fmt(b.p95, 0)} ms</td><td class="v">${fmt(b.p99, 0)} ms</td><td class="v">${fmt(b.erro, 2)}%</td><td class="v">${fmt(b.rps, 1)} req/s</td></tr>`,
         )
         .join("")}
     </tbody>
   </table>
-  <p class="nota">Medido pelo cliente, com <span class="v">scripts/benchmark_api.py</span>. Máquina de desenvolvimento (Windows, Python 3.14), sem rede externa, sem bancos, API e cliente no mesmo computador. Resultado de uma execução; não é capacidade de produção.</p>
+  <p class="nota">Medido pelo cliente, com <span class="v">scripts/benchmark_api.py</span>. Máquina de desenvolvimento (Windows, Python 3.14), API e cliente no mesmo computador. DeepSeek: 28 requisições por cenário, com Qdrant e Postgres ativos; o p99 de 52 s é uma única requisição em que o Neo4j não resolveu o DNS. LLM simulado: 200 por cenário, sem bancos nem rede externa. Uma execução de cada; não é capacidade de produção.</p>
 </div>`,
 );
 
@@ -399,13 +403,13 @@ const lat2 = pg(
 </div>
 <div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>Das ${ms(chat.media)} de média no servidor, só ${ms(somaMedNos)} estão nas etapas; o resto fica fora delas e as métricas atuais não o detalham.</p></div>
 <div class="a c2 l2 corpo">
-  <div class="rot" style="font:800 11px/14px 'Plus Jakarta Sans',sans-serif;letter-spacing:.07em;text-transform:uppercase;margin-bottom:9px">O que muda com a DeepSeek ${tag("amedir")}</div>
+  <div class="rot" style="font:800 11px/14px 'Plus Jakarta Sans',sans-serif;letter-spacing:.07em;text-transform:uppercase;margin-bottom:9px">O que muda com a DeepSeek ${tag("medido")}</div>
   <p>No caminho padrão o grafo encadeia o orquestrador, o especialista e o juiz de saída, e cada um faz ao menos uma chamada ao LLM; se o juiz reprova, entram a correção e um novo juízo. FAQ via Qdrant e coletas não passam por juiz LLM.</p>
-  <p>O tempo total com a DeepSeek será o do sistema somado às chamadas ao modelo, o gargalo esperado.</p>
+  <p>O tempo total com a DeepSeek é o do sistema somado às chamadas ao modelo, o gargalo: de 6 a 8 s por resposta.</p>
 </div>
 <div class="a c3 l2 corpo">
   <div class="rot" style="font:800 11px/14px 'Plus Jakarta Sans',sans-serif;letter-spacing:.07em;text-transform:uppercase;margin-bottom:9px">Como medir</div>
-  <p>Rodar o benchmark com <span class="v">LLM_PROVIDER=deepseek</span> e a chave no ambiente, e ler a latência por etapa e por chamada em <span class="v">ecociente_agent_duration_seconds</span> e <span class="v">ecociente_llm_duration_seconds</span>.</p>
+  <p>Rodar o benchmark com <span class="v">LLM_PROVIDER=deepseek</span> e a chave no ambiente (<span class="v">--requests 200</span> para um número mais firme), e ler a latência por etapa e por chamada em <span class="v">ecociente_agent_duration_seconds</span> e <span class="v">ecociente_llm_duration_seconds</span>.</p>
   <p>O projeto já alerta se o p95 do <span class="v">/chat</span> passar de 15 s por 10 minutos (<span class="v">alerts.yml</span>).</p>
   <p class="nota">p50 e p95 são interpolações dos buckets do histograma (o menor vai até 5 ms): valem como ordem de grandeza. A média é exata.</p>
 </div>`,
@@ -417,30 +421,30 @@ const erros = pg(
   `${abre(8)}
 <div class="a c1 l1">
   <h2>Índice de erros ${tag("medido")}</h2>
-  <p class="sub"><span class="m">${snap.http.erros5xx} falhas em ${inteiro(chat.n)} requisições  no teste com o LLM simulado.</span></p>
+  <p class="sub"><span class="m">Com a DeepSeek, 1 falha em ${d1.requisicoes + d10.requisicoes} requisições. Com o LLM simulado, ${snap.http.erros5xx} em ${inteiro(chat.n)}.</span></p>
 </div>
 <div class="stat g-azul">
-  <div class="rot">Falhas 5xx · LLM simulado</div>
-  <div class="big">${snap.http.erros5xx}<span class="u">de</span>${inteiro(chat.n)}</div>
-  <div class="cap">${pct(snap.http.erros5xx / chat.n, 2)} das requisições</div>
-  <div class="ori">${tag("medido")} ${tag("amedir")}</div>
+  <div class="rot">Falhas 5xx · DeepSeek real</div>
+  <div class="big">1<span class="u">de</span>${d1.requisicoes + d10.requisicoes}</div>
+  <div class="cap">${pct(1 / (d1.requisicoes + d10.requisicoes), 2)} das requisições</div>
+  <div class="ori">${tag("medido")}</div>
 </div>
 <div class="a c3 l1 corpo">
   <p><strong>Definição:</strong> índice de erros = requisições com falha de servidor (HTTP 5xx ou exceção) ÷ requisições totais.</p>
   <p>Respostas 4xx (cliente), bloqueios do guardrail e recusas por limite de uso não entram: aparecem em contadores próprios.</p>
 </div>
-<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>Zero erros prova pouco: o modelo simulado nunca falha, atrasa ou devolve saída inválida. A taxa real depende da DeepSeek.</p></div>
+<div class="a c1 l2 sig"><div class="rot">O que isso significa</div><p>A única falha não foi do modelo: o agente de grafo não alcançou o Neo4j (DNS) e o erro virou HTTP 500. O sistema não trata a indisponibilidade de uma tool, e o <span class="v">/health</span> marcava o Neo4j como ok.</p></div>
 <div class="a c23 l2">
   <table>
     <thead><tr><th>Sinal</th><th class="v">Resultado do teste</th><th class="v">Métrica</th></tr></thead>
     <tbody>
-      <tr><th scope="row">Falhas 5xx</th><td class="v">${snap.http.erros5xx} de ${inteiro(chat.n)} (${pct(snap.http.erros5xx / chat.n, 2)})</td><td class="v" style="font-size:10px">ecociente_http_request_errors_total</td></tr>
+      <tr><th scope="row">Falhas 5xx (LLM simulado)</th><td class="v">${snap.http.erros5xx} de ${inteiro(chat.n)} (${pct(snap.http.erros5xx / chat.n, 2)})</td><td class="v" style="font-size:10px">ecociente_http_request_errors_total</td></tr>
       <tr><th scope="row">Respostas reprovadas pelo juiz</th><td class="v">${inteiro(snap.juiz.reprovadas)} de ${inteiro(snap.juiz.aprovadas + snap.juiz.reprovadas)}</td><td class="v" style="font-size:10px">ecociente_judge_decisions_total</td></tr>
       <tr><th scope="row">Entradas barradas pelo guardrail</th><td class="v">${inteiro(Object.values(snap.guardrail).reduce((a, b) => a + b, 0))}</td><td class="v" style="font-size:10px">ecociente_guardrail_blocked_total</td></tr>
       <tr><th scope="row">Recusadas por limite de uso</th><td class="v">${inteiro(snap.cota)}</td><td class="v" style="font-size:10px">ecociente_quota_rejected_total</td></tr>
     </tbody>
   </table>
-  <p class="nota">A carga foi pequena (${inteiro(chat.n)} requisições) e sem timeouts nem limites de uso da DeepSeek. Para acompanhar em produção: <span class="v">sum(rate(ecociente_http_request_errors_total[5m])) / sum(rate(ecociente_http_requests_total[5m]))</span>.</p>
+  <p class="nota">A carga foi pequena (${inteiro(chat.n)} requisições no mock, 56 na DeepSeek) e sem limites de uso da DeepSeek. Para acompanhar em produção: <span class="v">sum(rate(ecociente_http_request_errors_total[5m])) / sum(rate(ecociente_http_requests_total[5m]))</span>.</p>
 </div>`,
 );
 
@@ -652,13 +656,13 @@ const metodo = pg(
 <div class="a c3 l1 corpo">
   <div class="rot" style="font:800 11px/14px 'Plus Jakarta Sans',sans-serif;letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px">Limitações</div>
   <ul class="lista">
-    <li><strong>LLM simulado.</strong> Latência, erros e resolução descrevem o sistema sem o modelo: um piso, não a experiência do usuário.</li>
+    <li><strong>Amostra pequena com a DeepSeek.</strong> 28 requisições por cenário: p95 e p99 são indicativos. Os tempos por etapa, a resolução e os tokens vêm da rodada com o LLM simulado.</li>
     <li><strong>Rota única.</strong> Só o especialista educacional foi exercitado; FAQ, analytics, coletas e grafo têm custos de tempo diferentes.</li>
     <li><strong>Uma máquina, uma execução.</strong> Sem repetição nem carga sustentada.</li>
     <li><strong>Resolução e tokens são premissas.</strong> O juiz simulado aprova tudo e o LLM simulado não reporta tokens.</li>
     <li><strong>Infraestrutura e benefício em zero.</strong> Sem eles não há custo total completo nem ROI único.</li>
     <li><strong>Preços e cotação mudam.</strong> Valem na data da consulta.</li>
-    <li><strong>Código mudou depois da medição.</strong> O thinking da DeepSeek só passou a ser desligado no código em 01/11/2026, e a base de conhecimento passou para o Qdrant. Os tempos medidos são anteriores a isso.</li>
+    <li><strong>Código mudou depois da medição.</strong> O thinking da DeepSeek só passou a ser desligado no código em 01/11/2026, e a base de conhecimento passou para o Qdrant. A rodada com a DeepSeek é posterior; as demais medições, não.</li>
   </ul>
 </div>`,
 );
@@ -707,7 +711,7 @@ ${[capa, intro, resumo, custo1, custo2, lat1, lat2, erros, resol, roiPg, infraPg
 writeFileSync(join(aqui, "relatorio.html"), html, "utf8");
 writeFileSync(
   join(aqui, "dados", "resumo.json"),
-  JSON.stringify({ gerado_em: new Date().toISOString(), cotacao: { usdBrl: USD_BRL, data: DATA_COTACAO }, premissas: PREM, bench: { c1: b1, c10: b10 }, chat, entreEtapas, nos, http: snap.http, juiz: snap.juiz, rotas: snap.rotas, custosBackend: custosBackend.amostras, sindico: { ...SIND, morador: { ...SIND.morador, ...sMor }, prof: { ...SIND.prof, ...sProf }, media: sMed, custoCondo, beneficioPorResolucao: BENEF_RES, roiBackend: { u100: roiBack100, u1000: roiBack1000 } }, infra: { awsUsdMes, fatiaIa: FATIA_IA, mesBrl: INFRA_MES_BRL, semanaBrl: INFRA_SEMANA_BRL, bancosPagosUsdMes: bancosUsdMes }, condominios: { residencial: { ...RES, casos: resCasos.map((c) => ({ caso: c.id, apiMesBrl: c.api })) }, industrial: { ...IND, casos: indCasos.map((c) => ({ caso: c.id, apiMesBrl: c.api, apiMesBrlAlto: c.alto })) } }, cenarios: cenarios.map((c) => ({ usuarios: c.usuarios, casos: c.casos.map((k) => ({ caso: k.id, ...k.r })) })) }, null, 2),
+  JSON.stringify({ gerado_em: new Date().toISOString(), cotacao: { usdBrl: USD_BRL, data: DATA_COTACAO }, premissas: PREM, bench: { c1: b1, c10: b10 }, benchDeepseek: { c1: d1, c10: d10 }, chat, entreEtapas, nos, http: snap.http, juiz: snap.juiz, rotas: snap.rotas, custosBackend: custosBackend.amostras, sindico: { ...SIND, morador: { ...SIND.morador, ...sMor }, prof: { ...SIND.prof, ...sProf }, media: sMed, custoCondo, beneficioPorResolucao: BENEF_RES, roiBackend: { u100: roiBack100, u1000: roiBack1000 } }, infra: { awsUsdMes, fatiaIa: FATIA_IA, mesBrl: INFRA_MES_BRL, semanaBrl: INFRA_SEMANA_BRL, bancosPagosUsdMes: bancosUsdMes }, condominios: { residencial: { ...RES, casos: resCasos.map((c) => ({ caso: c.id, apiMesBrl: c.api })) }, industrial: { ...IND, casos: indCasos.map((c) => ({ caso: c.id, apiMesBrl: c.api, apiMesBrlAlto: c.alto })) } }, cenarios: cenarios.map((c) => ({ usuarios: c.usuarios, casos: c.casos.map((k) => ({ caso: k.id, ...k.r })) })) }, null, 2),
   "utf8",
 );
 await vite.close();
