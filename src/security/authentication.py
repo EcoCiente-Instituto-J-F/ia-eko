@@ -36,7 +36,7 @@ class AuthIdentity(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     user_id: int = Field(validation_alias=AliasChoices("id", "user_id", "usuario_id"), gt=0)
-    perfil: str = Field(validation_alias=AliasChoices("perfil", "profile"), min_length=1)
+    perfil: str = Field(validation_alias=AliasChoices("perfil", "profile", "tipoUsuario", "tipo_usuario"), min_length=1)
     condominio_id: int | None = Field(
         default=None,
         validation_alias=AliasChoices("condominio_id", "condominium_id"),
