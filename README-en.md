@@ -60,7 +60,7 @@ The project is under active development. Current state:
 - [x] LLM tracing with Langfuse (self-hosted) or LangSmith, with PII masked
 - [x] Daily quota per profile, per-minute rate limit and a Redis session lock across replicas
 - [x] SSE endpoint `/api/v1/chat/stream` with pipeline progress
-- [x] FAQ via vector search in Qdrant (`FAQ_BACKEND=qdrant`), answering with curated text and no LLM call
+- [x] Knowledge base in Qdrant (default, `FAQ_BACKEND=qdrant`): FAQ with curated text and no LLM call, plus the RAG chunks in the same collection
 - [x] Incremental, scheduled ETL from PostgreSQL to Neo4j, validated against PostgreSQL 16 with up to 1.8M votes
 - [x] Routing evals (`python -m evals.routing.run`) with accuracy, per-route F1 and a confusion matrix
 - [x] A2A server and MCP server for integration with other agents
@@ -76,8 +76,8 @@ The project is under active development. Current state:
 - Python `3.11` or later
 - PostgreSQL `14+`, MongoDB and Redis (they can run in Docker)
 - Neo4j `5+` (optional — only needed by the `grafo` specialist; the API starts without it)
-- Qdrant (optional — only with `FAQ_BACKEND=qdrant`)
-- Ollama running locally (default LLM/embeddings provider) **or** a Groq/Gemini/DeepSeek key
+- Qdrant (required with the default `FAQ_BACKEND=qdrant`; with `FAQ_BACKEND=rag` the base stays in memory and Qdrant is optional)
+- A DeepSeek key (default LLM provider) **or** Groq/Gemini, or a local Ollama. Ollama is still the default embeddings provider for the RAG
 - Docker and Docker Compose, if you run the databases in containers
 
 ## Installation
@@ -104,7 +104,8 @@ pip install -r requirements.txt
 ```
 
 > To use Groq, Gemini or DeepSeek as the LLM provider, install `requirements-optional.txt`
-> instead (it already includes the base `requirements.txt`).
+> instead (it already includes the base `requirements.txt`). `qdrant-client` and `fastembed` (default `FAQ_BACKEND=qdrant`) are
+> already in `requirements.txt`.
 
 Configure the environment variables:
 
@@ -118,13 +119,15 @@ cp .env.example .env           # Windows: copy .env.example .env
 | Variable | Default | Description |
 | --- | --- | --- |
 | `APP_ENV` | `development` | `development`, `test` or `production` |
-| `LLM_PROVIDER` | `ollama` | `ollama`, `groq`, `gemini`, `deepseek` or `mock` (no API cost, used by the tests) |
+| `LLM_PROVIDER` | `deepseek` | `ollama`, `groq`, `gemini`, `deepseek` or `mock` (no API cost, used by the tests) |
 | `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | `http://localhost:11434` / `qwen3:4b` | Local LLM via Ollama |
 | `POSTGRES_URL` | — | Source of truth for analytics data (queried read-only) |
 | `MONGODB_URI` / `MONGODB_DATABASE` | `mongodb://localhost:27017` / `ecociente` | Conversational memory of the sessions |
 | `REDIS_URL` | `redis://localhost:6379/0` | Rankings, session pointer, usage quotas and the session lock |
 | `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | `bolt://localhost:7687` / `neo4j` | Relationship layer used by the `grafo` specialist (optional) |
-| `KNOWLEDGE_BASE_PATH` | `data/FAQ_KNOWLEDGE_BASE.md` | RAG base of the `faq` and `educacional` specialists |
+| `FAQ_BACKEND` | `qdrant` | `qdrant`: FAQ and RAG chunks come from Qdrant, loaded manually (`python -m src.etl.populate_qdrant`); `rag`: everything in memory, for tests and development without Qdrant. See "Knowledge base in Qdrant" |
+| `QDRANT_URL` / `QDRANT_API_KEY` | — | Qdrant endpoint and key (required with `FAQ_BACKEND=qdrant`) |
+| `KNOWLEDGE_BASE_PATH` | `data/FAQ_KNOWLEDGE_BASE.md` | Source file of the base: read by the in-memory RAG (`FAQ_BACKEND=rag`) and by the Qdrant load (`populate_qdrant`) |
 | `CALENDAR_API_BASE_URL` | `http://localhost:9800` | External collection-calendar API, consumed via MCP |
 | `AUTH_API_URL` | — | External API that validates the bearer token and returns the user's claims |
 | `JUDGE_MAX_CORRECTIONS` | `1` | How many times the output judge may ask for a correction |
@@ -258,9 +261,17 @@ instead of made-up numbers. Method, formulas and variables in
 | Prometheus/Grafana | How much and how fast: latency per agent, judge rejection rate, tokens/min, quota refusals, error rate, cost per resolution |
 | Langfuse/LangSmith | What happened in this conversation: prompt, answer, tokens and each agent's decision |
 
-### FAQ via Qdrant (no LLM)
+### Knowledge base in Qdrant
 
-With `FAQ_BACKEND=qdrant`, the `faq` specialist does not call an LLM:
+`FAQ_BACKEND=qdrant` is the default. The API **indexes nothing at startup**: the FAQ and the RAG
+(`educacional` specialist, correction step and A2A server) query the `QDRANT_COLLECTION`
+collection, which holds the canonical FAQs (`tipo=faq_canonica`) and the knowledge-base chunks
+(`tipo=rag_trecho`, from `data/FAQ_KNOWLEDGE_BASE.md` and, with `ENABLE_EXTERNAL_SOURCE=true`,
+SINIR). With Qdrant down (or the collection without chunks) the answer says the base lacks enough
+evidence and `/health` shows `rag: error`. `FAQ_BACKEND=rag` keeps the old all-in-memory flow,
+useful for tests and development without Qdrant.
+
+The `faq` specialist does not call an LLM:
 
 1. The question is embedded locally (`fastembed`, `intfloat/multilingual-e5-large`, prefix
    `query:`). No API call is made.
@@ -280,8 +291,9 @@ QDRANT_COLLECTION=faq
 QDRANT_MIN_SCORE=0.80
 ```
 
-Load the collection from the "Perguntas Frequentes Canônicas" section of
-`data/FAQ_KNOWLEDGE_BASE.md` (64 `FAQ-NNN` entries):
+The load is **manual** and never runs by itself (not at startup, not as a CronJob, not in CI). Run
+it once when setting up the environment, and again when you edit `data/FAQ_KNOWLEDGE_BASE.md` or
+want to refresh SINIR. It indexes the canonical FAQs (64 `FAQ-NNN` entries) and the base chunks:
 
 ```bash
 python -m src.etl.populate_qdrant --dry-run      # validates the file, does not touch Qdrant
@@ -289,8 +301,10 @@ python -m src.etl.populate_qdrant                # creates/updates the collectio
 python -m src.etl.populate_qdrant --testar "como faço login?" "posso apagar minha conta?"
 ```
 
-The load is idempotent (point id derived from `faq_id`), only re-embeds what changed (hash in the
-payload) and removes FAQs that left the file. Run it again whenever the base changes.
+The load is idempotent, only re-embeds what changed (hash in the payload) and removes what left
+the file. `--recriar` drops the collection first; if SINIR is down at that moment there are no
+SINIR chunks until the next successful load. With `ENABLE_EXTERNAL_SOURCE=false`, the load
+removes SINIR chunks that were already indexed.
 
 > [!WARNING]
 > The embedding model (`QDRANT_EMBEDDING_MODEL`, ~2.2 GB, downloaded on first use) must be the
@@ -333,6 +347,38 @@ by the infrastructure team in
 
 ## How it works
 
+### Architecture overview
+
+<p align="center">
+  <img src="assets/arquitetura-fluxo-agentes.png" alt="Architecture diagram: EcoCiente IA agent flow, specialists, message path, where each piece of data lives, and integrations/deployment" width="100%">
+</p>
+
+The diagram (in Portuguese) shows a message's path from the app to the delivered answer (steps 1 to 10):
+
+1. **App / API:** `POST /api/v1/chat` or SSE on `/api/v1/chat/stream`, with a Bearer token.
+2. **Input:** daily quota, per-minute limit and session lock in Redis; fixed rules and an LLM
+   input judge (prompt injection, third-party data, fraud). A block goes straight to the safe
+   output.
+3. **Memory:** loads the conversation and long-term memory from MongoDB; past 20 messages, it
+   summarizes and saves back.
+4. **Orchestrator:** picks 1 of 5 specialists and checks that the user's profile may use it.
+   Without permission, it goes to the safe output.
+5. **Specialists:** `faq` (Qdrant, no LLM), `educacional` (Qdrant + SINIR/A2A), `analytics`
+   (PostgreSQL + Redis), `coletas` (calendar via MCP) and `grafo` (Neo4j).
+6. **Output judge:** checks the draft against the evidence consulted and may request one
+   correction (re-evaluated once). The canonical FAQ and `coletas` skip the judge.
+7. **Output:** strips secrets, masks traces (CPF, e-mail, phone, tokens) and delivers to the app.
+
+Each piece of data has one owner: **PostgreSQL** is the source of truth (the AI only reads),
+**MongoDB** keeps the history, **Redis** keeps ranking, session pointer, quotas and lock,
+**Neo4j** keeps relationships and **Qdrant** keeps the FAQ and RAG passages. For deployment,
+Docker Compose runs the API, Prometheus and Grafana; the databases live outside it. On
+Kubernetes, the `ecociente` namespace runs the API and the Neo4j CronJobs (incremental every
+15 min, full at 03:00). With Qdrant down, the chat keeps answering, the FAQ says there is not
+enough evidence, and `/health` shows `rag: error`.
+
+The diagram below details the same steps as the LangGraph flow.
+
 ### Message pipeline
 
 ```mermaid
@@ -366,7 +412,7 @@ through the LLM judge).
 
 | Agent | Data source | When it answers |
 | --- | --- | --- |
-| `faq` | RAG over `data/FAQ_KNOWLEDGE_BASE.md`, or Qdrant without an LLM (`FAQ_BACKEND=qdrant`) | Rules, policies and the assistant's limits |
+| `faq` | Qdrant without an LLM (default, `FAQ_BACKEND=qdrant`), or in-memory RAG over `data/FAQ_KNOWLEDGE_BASE.md` (`FAQ_BACKEND=rag`) | Rules, policies and the assistant's limits |
 | `educacional` | RAG over the same base + an external source (SINIR) | Waste sorting, composting, sustainability |
 | `analytics` | PostgreSQL (read) + Redis (rankings) | Points, performance, metrics and comparisons — whenever the answer is a number or a series |
 | `coletas` | External calendar API via MCP | Collection scheduling, recurrence and confirmation |
@@ -375,7 +421,7 @@ through the LLM judge).
 The `grafo` agent exists because questions like *"which residents most influence recycling in
 the condominium?"* are not answered by a SQL aggregate — they need the topology of the
 relationship network (`Usuario`, `Condominio`, `Torre`, `Cooperativa`, `CategoriaResiduo`,
-`Curso`, `Postagem` and relations such as `MORA_EM`, `PERTENCE_A`, `CRIOU`, `VALIDOU`,
+`Curso`, `Postagem` and relations such as `MORA_EM`, `MORA_NA`, `PERTENCE_A`, `CRIOU`, `VALIDOU`,
 `DENUNCIOU`, `TEM_DIFICULDADE_EM` and `RECOMENDADO_PARA`). The vocabulary lives in one place
 (`src/etl/graph_model.py`), shared by the ETL and the tools' whitelist; the Cypher exposed to
 the LLM is in `src/agents/graph_traversal/tools.py`.
@@ -412,7 +458,7 @@ Architecture decisions are documented in `docs/ARQUITETURA.md` (Portuguese).
 ## Tests
 
 ```bash
-LLM_PROVIDER=mock EMBEDDING_PROVIDER=mock STORAGE_MODE=memory ENABLE_EXTERNAL_SOURCE=false pytest
+LLM_PROVIDER=mock EMBEDDING_PROVIDER=mock STORAGE_MODE=memory ENABLE_EXTERNAL_SOURCE=false FAQ_BACKEND=rag pytest
 ```
 
 The suite runs with `LLM_PROVIDER=mock` (no API cost — deterministic answers simulate each

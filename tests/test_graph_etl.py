@@ -36,6 +36,11 @@ class FakePostgres:
                 return [dict(r) for r in rows]
         return []
 
+    def iter_batches(self, query: str, params, size: int):
+        rows = self.fetch_all(query, params)
+        for start in range(0, len(rows), size):
+            yield rows[start : start + size]
+
 
 class FakeNeo4j:
     def __init__(self, checkpoint: datetime | None = None):
@@ -81,10 +86,6 @@ def test_every_merged_label_has_a_constraint():
 
 
 def test_graph_vocabulary_matches_agent_whitelist():
-    from src.agents.graph_traversal import tools
-
-    assert tools._LABELS_PERMITIDOS == set(NODE_LABELS)
-    assert tools._RELACOES_PERMITIDAS == set(RELATIONSHIP_TYPES)
     written = set()
     for step in EDGE_STEPS:
         written.update(re.findall(r"\[(?:\w+)?:([A-Z_]+)\]", step.merge))
@@ -234,6 +235,19 @@ async def test_recommendations_are_recomputed_and_stale_ones_removed():
 # ------------------------------------------------------ SQL x schema real
 
 
+def test_schema_creates_every_index_after_its_table():
+    # Índice criado antes da tabela quebra a carga do DDL em Postgres limpo.
+    text = SCHEMA.read_text(encoding="utf-8")
+    tabelas = {m.group(1).lower(): m.start() for m in re.finditer(
+        r"CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(tb_[a-z0-9_]+)", text, re.I)}
+    fora_de_ordem = [
+        (m.group(1), m.group(2))
+        for m in re.finditer(r"CREATE (?:UNIQUE )?INDEX\s+(?:IF NOT EXISTS\s+)?(\w+)\s+ON\s+(tb_[a-z0-9_]+)", text, re.I)
+        if tabelas.get(m.group(2).lower(), len(text)) > m.start()
+    ]
+    assert fora_de_ordem == []
+
+
 def _schema_columns() -> dict[str, set[str]]:
     text = SCHEMA.read_text(encoding="utf-8")
     result: dict[str, set[str]] = {}
@@ -249,6 +263,19 @@ def _schema_columns() -> dict[str, set[str]]:
 
 def _all_sql(step: Step) -> list[str]:
     return [sql for sql in (step.full_sql, step.incremental_sql) if sql]
+
+
+def test_votes_are_classified_by_vote_type_not_by_reason():
+    from src.etl.validate_graph import CONTAGENS
+
+    steps = {s.name: s for s in EDGE_STEPS}
+    for nome, tipo in (("validou", "aprovar"), ("denunciou", "denunciar")):
+        for sql in _all_sql(steps[nome]):
+            assert f"t.nome_tipo = '{tipo}'" in sql
+            assert "motivo_denuncia_id IS" not in sql
+    assert all("LEFT JOIN tb_lkp_motivos_denuncia" in sql for sql in _all_sql(steps["denunciou"]))
+    assert "nome_tipo = 'aprovar'" in CONTAGENS["VALIDOU"][0]
+    assert "nome_tipo = 'denunciar'" in CONTAGENS["DENUNCIOU"][0]
 
 
 def test_etl_sql_only_references_existing_columns():
@@ -359,3 +386,14 @@ async def test_recommendations_run_on_full_but_not_on_incremental():
     neo = FakeNeo4j()
     stats = await _populator(FakePostgres(), neo).run("full")
     assert neo.queries("RECOMENDADO_PARA") and "recomendacoes" in stats["duracao_s"]
+
+
+def test_mora_em_step_also_maintains_tower_edge():
+    from src.etl.validate_graph import CONTAGENS
+
+    step = next(s for s in EDGE_STEPS if s.name == "mora_em")
+    assert "m.torre_id" in step.full_sql
+    assert "m.torre_id" in step.incremental_sql
+    assert "MERGE (u)-[:MORA_NA]->(t)" in step.merge
+    assert "row.torre_id IS NULL OR antiga.id <> row.torre_id" in step.merge
+    assert "torre_id IS NOT NULL" in CONTAGENS["MORA_NA"][0]

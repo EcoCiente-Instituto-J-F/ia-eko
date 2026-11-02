@@ -144,6 +144,17 @@ def test_record_usage_accumulates_per_conversation() -> None:
     assert current_trace() is None
 
 
+def test_record_usage_counts_cache_hit_tokens() -> None:
+    from src.observability.metrics import LLM_TOKENS
+
+    message = _AIMessage(1812, 1)
+    message.usage_metadata["input_token_details"] = {"cache_read": 1664}
+    counter = LLM_TOKENS.labels(provider="deepseek", agent="teste_cache", kind="input_cache_hit")
+    before = counter._value.get()
+    record_usage(provider="deepseek", agent="teste_cache", messages=[message, _AIMessage(10, 1)])
+    assert counter._value.get() - before == 1664
+
+
 def test_chat_response_exposes_usage(client) -> None:
     response = client.post(
         "/api/v1/chat",
@@ -237,6 +248,7 @@ async def test_stream_closed_from_another_context_releases_everything_cleanly() 
         enable_external_source=False,
         postgres_url=None,
         rate_limit_per_minute=100,
+        faq_backend="rag",
     )
 
     class _Stub:

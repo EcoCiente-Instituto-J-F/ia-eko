@@ -24,12 +24,13 @@ você.
 - `coletas`: consulta, criação ou alteração de agendamento, recorrência, calendário, confirmação de passagem e status de coleta.
 - `educador`: separação de resíduos, reciclabilidade, compostagem, hortas e módulos educativos.
 - `analytics`: pontos, desempenho, métricas, tendências, comparações e rankings — sempre que a resposta for um NÚMERO ou série agregada.
-- `grafo`: caminho, conexão, relação ou influência entre entidades específicas (usuários, condomínios, torres, cooperativas, postagens) — quando a resposta é a ESTRUTURA da relação, não uma métrica agregada.
+- `grafo`: caminho, conexão, relação ou influência entre entidades específicas (usuários, condomínios, torres, cooperativas, postagens) — quando a resposta é a ESTRUTURA da relação, não uma métrica agregada — e cursos recomendados para o próprio usuário (recomendação personalizada).
 - `faq`: regras, políticas, privacidade, responsabilidades, limitações do assistente e qualquer pergunta que não se encaixe com segurança nas outras rotas.
 
 ### REGRAS DE DECISÃO
 - Escolha exatamente uma rota.
 - Em caso de ambiguidade entre `analytics` e `grafo`, prefira `analytics` quando a pergunta pedir total/percentual/série e `grafo` quando pedir caminho, conexão ou "quem influencia quem".
+- Conteúdo genérico de curso/módulo vai para `educador`; "quais cursos são recomendados para mim" ou "o que devo estudar com base no meu desempenho" vai para `grafo`.
 - Em caso de ambiguidade entre domínios, use o objetivo principal da mensagem.
 - Se ainda não for possível determinar, use `faq` como fallback.
 - Não responda saudações, small talk ou fora de escopo; o Roteador já tratou trivialidades e o FAQ trata limites.

@@ -28,7 +28,8 @@ CREATE TABLE tb_lkp_tipos_condominios (
 );
 CREATE TABLE tb_lkp_status_agendamentos (
     id_status   INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nome_status VARCHAR(50) NOT NULL
+    nome_status VARCHAR(50) NOT NULL,
+    CONSTRAINT uq_lkp_status_agendamentos_nome_status UNIQUE (nome_status)
 );
 
 CREATE TABLE tb_lkp_dias_semanas (
@@ -43,12 +44,12 @@ CREATE TABLE tb_lkp_categorias_residuos (
     permite_reciclagem   BOOLEAN       NOT NULL DEFAULT TRUE,
     cor_identificacao    VARCHAR(10),
     pontos_base          INTEGER       NOT NULL DEFAULT 10,
-    limite_pontos_ciclo  INTEGER,
+    limite_pontos_diario  INTEGER,
     CONSTRAINT ck_categorias_residuos_pontos_base CHECK (pontos_base > 0),
-    CONSTRAINT ck_categorias_residuos_limite_pontos_ciclo CHECK (limite_pontos_ciclo IS NULL OR limite_pontos_ciclo >= 0)
+    CONSTRAINT ck_categorias_residuos_limite_pontos_diario CHECK (limite_pontos_diario IS NULL OR limite_pontos_diario >= 0)
 );
 COMMENT ON COLUMN tb_lkp_categorias_residuos.pontos_base IS 'Pontos concedidos por postagem aprovada nessa categoria';
-COMMENT ON COLUMN tb_lkp_categorias_residuos.limite_pontos_ciclo IS 'Teto de pontos por usuario por ciclo de ranking nessa categoria. NULL = sem teto';
+COMMENT ON COLUMN tb_lkp_categorias_residuos.limite_pontos_diario IS 'Teto diario de pontos por usuario nessa categoria. NULL = sem teto';
 
 CREATE TABLE tb_lkp_niveis_confianca (
     id_nivel_confianca INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -102,6 +103,7 @@ CREATE TABLE tb_enderecos (
     cep           VARCHAR(10),
     estado        CHAR(2),
     cidade        VARCHAR(100),
+    bairro        VARCHAR(100),
     logradouro    VARCHAR(150),
     numero        VARCHAR(20),
     complemento   VARCHAR(100)
@@ -163,26 +165,34 @@ CREATE TABLE tb_condominios (
     tipo_condominio_id   INTEGER      NOT NULL,
     sindico_id           INTEGER,
     endereco_id          INTEGER,
+    url_foto             VARCHAR(500),
     CONSTRAINT fk_condominios_tipo_condominio_id FOREIGN KEY (tipo_condominio_id) REFERENCES tb_lkp_tipos_condominios (id_tipo_condominio),
     CONSTRAINT fk_condominios_sindico_id FOREIGN KEY (sindico_id) REFERENCES tb_sindicos (id_sindico),
     CONSTRAINT fk_condominios_endereco_id FOREIGN KEY (endereco_id) REFERENCES tb_enderecos (id_endereco),
     CONSTRAINT uq_condominios_endereco_id UNIQUE (endereco_id)
 );
+COMMENT ON COLUMN tb_condominios.url_foto IS 'URL da foto geral do condominio (fachada). Nulo = sem foto cadastrada';
 
 CREATE TABLE tb_torres (
     id_torre       INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nome_torre     VARCHAR(100) NOT NULL,
     condominio_id  INTEGER      NOT NULL,
     CONSTRAINT fk_torres_condominio_id FOREIGN KEY (condominio_id) REFERENCES tb_condominios (id_condominio),
-    CONSTRAINT torres_index_0 UNIQUE (condominio_id, nome_torre)
+    CONSTRAINT torres_index_0 UNIQUE (condominio_id, nome_torre),
+    -- Alvo da FK composta de tb_moradores: garante torre do mesmo condominio
+    CONSTRAINT uq_torres_id_condominio UNIQUE (id_torre, condominio_id)
 );
 CREATE TABLE tb_moradores (
     id_morador  INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     condominio_id    INTEGER      NOT NULL,
     usuario_id  INTEGER NOT NULL,
+    torre_id    INTEGER,
     CONSTRAINT fk_moradores_usuario_id FOREIGN KEY (usuario_id) REFERENCES tb_usuarios (id_usuario),
     CONSTRAINT uq_moradores_usuario_id UNIQUE (usuario_id),
-    CONSTRAINT fk_moradores_condominio_id FOREIGN KEY (condominio_id) REFERENCES tb_condominios (id_condominio));
+    CONSTRAINT fk_moradores_condominio_id FOREIGN KEY (condominio_id) REFERENCES tb_condominios (id_condominio),
+    CONSTRAINT fk_moradores_torre_condominio FOREIGN KEY (torre_id, condominio_id)
+        REFERENCES tb_torres (id_torre, condominio_id));
+COMMENT ON COLUMN tb_moradores.torre_id IS 'Torre onde o morador mora. Nulo em condominio sem torres (comercial). A FK composta impede torre de outro condominio';
 
 -- ============================================================================
 -- SECAO 4 - COOPERATIVAS E PONTOS DE COLETA
@@ -281,7 +291,9 @@ CREATE TABLE tb_postagens (
     capturada_em                   TIMESTAMPTZ   NOT NULL,
     data_postagem                  TIMESTAMPTZ   NOT NULL DEFAULT now(),
     status_validacao_id            INTEGER       NOT NULL DEFAULT 1,
-    saldo_confianca                INTEGER       NOT NULL,
+    saldo_confianca                INTEGER       NOT NULL DEFAULT 0,
+    pontuacao_ativa                 BOOLEAN       NOT NULL DEFAULT TRUE,
+    pontuacao_reconciliacao_pendente BOOLEAN      NOT NULL DEFAULT FALSE,
     triagem_automatica_aprovada    BOOLEAN,
     triagem_automatica_confianca   DECIMAL(5,2),
     data_limite_analise            TIMESTAMPTZ   NOT NULL DEFAULT (now() + INTERVAL '24 hours'),
@@ -299,11 +311,13 @@ COMMENT ON COLUMN tb_postagens.condominio_id IS 'Usado pela aplicacao para monta
 COMMENT ON COLUMN tb_postagens.torre_id IS 'Nulo quando o condominio nao possui torres (ex.: condominio comercial). Usado para a chave do ranking no Redis';
 COMMENT ON COLUMN tb_postagens.hash_foto IS 'Hash (ex.: SHA-256) do arquivo - impede reuso da mesma foto em outra postagem';
 COMMENT ON COLUMN tb_postagens.capturada_em IS 'Timestamp de captura da camera (foto instantanea), validado contra data_postagem';
-COMMENT ON COLUMN tb_postagens.status_validacao_id IS 'Default = aprovada (id 1). Unico gatilho de pontuacao - permanece no SQL';
-COMMENT ON COLUMN tb_postagens.saldo_confianca IS 'Soma dos pesos de voto: aprovacoes somam, denuncias subtraem. Permanece no SQL';
+COMMENT ON COLUMN tb_postagens.status_validacao_id IS 'Enquanto resolvido_em IS NULL, status aprovada representa APROVACAO PROVISORIA; a decisao definitiva ocorre no fechamento da janela ou por decisao manual.';
+COMMENT ON COLUMN tb_postagens.saldo_confianca IS 'Soma dos pesos de voto: aprovacoes somam, denuncias subtraem. Inicia em 0.';
+COMMENT ON COLUMN tb_postagens.pontuacao_ativa IS 'Estado desejado da pontuacao da postagem: TRUE enquanto valida; vira FALSE ao atingir saldo <= -5 e pode voltar a TRUE quando saldo >= 0 dentro da janela.';
+COMMENT ON COLUMN tb_postagens.pontuacao_reconciliacao_pendente IS 'TRUE quando a mudanca de estado exige reconciliar CREDITO/ESTORNO/RESTAURACAO no ledger tb_movimentacoes_pontos pela API.';
 COMMENT ON COLUMN tb_postagens.triagem_automatica_aprovada IS 'Resultado da checagem automatica fraca (ex.: "parece conter lixo/objeto?"). NULL = ainda nao processada';
 COMMENT ON COLUMN tb_postagens.data_limite_analise IS 'Prazo maximo para a comunidade validar/derrubar a postagem';
-COMMENT ON COLUMN tb_postagens.resolvido_em IS 'Momento em que o status deixou de ser provisorio (aprovada/reprovada definitiva)';
+COMMENT ON COLUMN tb_postagens.resolvido_em IS 'Momento em que a janela comunitaria foi encerrada ou houve decisao manual; quando NULL a postagem ainda esta em validacao comunitaria.';
 
 CREATE TABLE tb_rel_votos_postagens (
     id_voto              INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -335,6 +349,14 @@ CREATE TABLE tb_agendamentos_coletas (
     data_inicio             TIMESTAMPTZ  NOT NULL,
     data_fim                TIMESTAMPTZ,
     possui_recorrencia      BOOLEAN      NOT NULL DEFAULT FALSE,
+    solicitado_por_usuario_id  INTEGER      NOT NULL,
+    origem_solicitacao         VARCHAR(20)  NOT NULL,
+    respondido_por_usuario_id  INTEGER,
+    respondido_em              TIMESTAMPTZ,
+    CONSTRAINT fk_agendamentos_coletas_solicitado_por_usuario_id FOREIGN KEY (solicitado_por_usuario_id) REFERENCES tb_usuarios (id_usuario),
+    CONSTRAINT fk_agendamentos_coletas_respondido_por_usuario_id FOREIGN KEY (respondido_por_usuario_id) REFERENCES tb_usuarios (id_usuario),
+    CONSTRAINT ck_agendamentos_coletas_origem_solicitacao CHECK (origem_solicitacao IN ('CONDOMINIO', 'COOPERATIVA')),
+    CONSTRAINT ck_agendamentos_coletas_resposta CHECK ((respondido_por_usuario_id IS NULL) = (respondido_em IS NULL)),
     CONSTRAINT fk_agendamentos_coletas_condominio_id FOREIGN KEY (condominio_id) REFERENCES tb_condominios (id_condominio),
     CONSTRAINT fk_agendamentos_coletas_cooperativa_id FOREIGN KEY (cooperativa_id) REFERENCES tb_cooperativas (id_cooperativa),
     CONSTRAINT fk_agendamentos_coletas_status_agendamento_id FOREIGN KEY (status_agendamento_id) REFERENCES tb_lkp_status_agendamentos (id_status),
@@ -416,9 +438,11 @@ CREATE TABLE tb_perguntas_quiz (
     quiz_id      INTEGER NOT NULL,
     enunciado    TEXT    NOT NULL,
     ordem        INTEGER NOT NULL,
+    explicacao   TEXT,
     CONSTRAINT fk_perguntas_quiz_quiz_id FOREIGN KEY (quiz_id) REFERENCES tb_quizzes (id_quiz) ON UPDATE CASCADE,
     CONSTRAINT perguntas_quiz_index_12 UNIQUE (quiz_id, ordem)
 );
+COMMENT ON COLUMN tb_perguntas_quiz.explicacao IS 'Explicacao da resposta correta, exibida depois que o usuario responde. Nulo = sem explicacao cadastrada';
 
 CREATE TABLE tb_alternativas_quiz (
     id_alternativa     INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -446,7 +470,7 @@ CREATE TABLE tb_tentativas_quiz (
 );
 COMMENT ON COLUMN tb_tentativas_quiz.condominio_id IS 'Snapshot do condominio do usuario na conclusao, para atribuicao de pontos ao ciclo';
 COMMENT ON COLUMN tb_tentativas_quiz.torre_id IS 'Snapshot da torre do usuario na conclusao';
-COMMENT ON COLUMN tb_tentativas_quiz.aprovado IS 'Quando true, aplicacao incrementa tb_quizzes.pontos_recompensa no Redis';
+COMMENT ON COLUMN tb_tentativas_quiz.aprovado IS 'Quando true e a tentativa for elegivel, a API registra CREDITO em tb_movimentacoes_pontos; somente apos COMMIT sincroniza o Redis';
 
 CREATE TABLE tb_rel_respostas_tentativas_quiz (
     id_resposta                INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -472,9 +496,189 @@ CREATE TABLE tb_rel_usuarios_cursos (
     CONSTRAINT usuarios_cursos_index_6 UNIQUE (usuario_id, aula_id)
 );
 
+
+
 -- ============================================================================
--- SECAO 9 - AUDITORIA (CLASS TABLE INHERITANCE)
+-- SECAO 9 - LEDGER OFICIAL DE PONTOS E CONTROLE DE TOKEN DE AUTENTICACAO
 -- ============================================================================
+
+CREATE TABLE tb_autenticacoes_api (
+    id_autenticao_api  INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    usuario_id   INTEGER      NOT NULL,
+    token        TEXT         NOT NULL,
+    tipo_token   VARCHAR(20)  NOT NULL DEFAULT 'Bearer',
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expira_em   INTEGER      NOT NULL,
+
+    CONSTRAINT fk_autenticao_api_usuario_id
+        FOREIGN KEY (usuario_id)
+        REFERENCES tb_usuarios (id_usuario),
+
+    CONSTRAINT uq_autenticao_api_token
+        UNIQUE (token),
+
+    CONSTRAINT ck_autenticao_api_token_type
+        CHECK (tipo_token = 'Bearer'),
+
+    CONSTRAINT ck_autenticao_api_expira_em
+        CHECK (expira_em > 0)
+);
+
+
+
+-- PostgreSQL e a fonte oficial da pontuacao. O Redis e apenas uma projecao
+-- derivada para ranking. Toda concessao, retirada ou restauracao deve ser
+-- registrada nesta tabela antes de qualquer atualizacao no Redis.
+CREATE TABLE tb_movimentacoes_pontos (
+    id_movimentacao               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    usuario_id                    INTEGER       NOT NULL,
+    condominio_id                 INTEGER,
+    torre_id                      INTEGER,
+    categoria_id                  INTEGER,
+    origem_tipo                   VARCHAR(20)   NOT NULL,
+    postagem_id                   INTEGER,
+    tentativa_quiz_id             INTEGER,
+    tipo_movimentacao             VARCHAR(20)   NOT NULL,
+    pontos                        INTEGER       NOT NULL,
+    movimentacao_referencia_id    BIGINT,
+    idempotency_key               VARCHAR(150)  NOT NULL,
+    ocorrido_em                   TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    redis_sincronizado            BOOLEAN       NOT NULL DEFAULT FALSE,
+    redis_sincronizado_em         TIMESTAMPTZ,
+    tentativas_sync_redis         INTEGER       NOT NULL DEFAULT 0,
+    ultimo_erro_redis             TEXT,
+
+    CONSTRAINT fk_mov_pontos_usuario_id
+        FOREIGN KEY (usuario_id) REFERENCES tb_usuarios (id_usuario),
+    CONSTRAINT fk_mov_pontos_condominio_id
+        FOREIGN KEY (condominio_id) REFERENCES tb_condominios (id_condominio),
+    CONSTRAINT fk_mov_pontos_torre_id
+        FOREIGN KEY (torre_id) REFERENCES tb_torres (id_torre),
+    CONSTRAINT fk_mov_pontos_categoria_id
+        FOREIGN KEY (categoria_id) REFERENCES tb_lkp_categorias_residuos (id_categoria),
+    CONSTRAINT fk_mov_pontos_postagem_id
+        FOREIGN KEY (postagem_id) REFERENCES tb_postagens (id_postagem),
+    CONSTRAINT fk_mov_pontos_tentativa_quiz_id
+        FOREIGN KEY (tentativa_quiz_id) REFERENCES tb_tentativas_quiz (id_tentativa),
+    CONSTRAINT fk_mov_pontos_movimentacao_referencia_id
+        FOREIGN KEY (movimentacao_referencia_id) REFERENCES tb_movimentacoes_pontos (id_movimentacao),
+
+    CONSTRAINT uq_mov_pontos_idempotency_key UNIQUE (idempotency_key),
+    CONSTRAINT ck_mov_pontos_origem_tipo
+        CHECK (origem_tipo IN ('POSTAGEM', 'QUIZ')),
+    CONSTRAINT ck_mov_pontos_tipo_movimentacao
+        CHECK (tipo_movimentacao IN ('CREDITO', 'ESTORNO', 'RESTAURACAO')),
+    CONSTRAINT ck_mov_pontos_pontos_positivo
+        CHECK (pontos > 0),
+    CONSTRAINT ck_mov_pontos_tentativas_sync
+        CHECK (tentativas_sync_redis >= 0),
+    CONSTRAINT ck_mov_pontos_origem_consistente CHECK (
+        (origem_tipo = 'POSTAGEM'
+            AND postagem_id IS NOT NULL
+            AND tentativa_quiz_id IS NULL
+            AND categoria_id IS NOT NULL)
+        OR
+        (origem_tipo = 'QUIZ'
+            AND tentativa_quiz_id IS NOT NULL
+            AND postagem_id IS NULL
+            AND categoria_id IS NULL)
+    ),
+    CONSTRAINT ck_mov_pontos_referencia_consistente CHECK (
+        (tipo_movimentacao = 'CREDITO' AND movimentacao_referencia_id IS NULL)
+        OR
+        (tipo_movimentacao IN ('ESTORNO', 'RESTAURACAO') AND movimentacao_referencia_id IS NOT NULL)
+    ),
+    CONSTRAINT ck_mov_pontos_sync_timestamp CHECK (
+        redis_sincronizado = FALSE OR redis_sincronizado_em IS NOT NULL
+    )
+);
+
+COMMENT ON TABLE tb_movimentacoes_pontos IS 'Ledger oficial e imutavel de pontuacao. Redis deve ser reconstruivel integralmente a partir deste historico.';
+COMMENT ON COLUMN tb_movimentacoes_pontos.origem_tipo IS 'POSTAGEM ou QUIZ';
+COMMENT ON COLUMN tb_movimentacoes_pontos.tipo_movimentacao IS 'CREDITO soma; ESTORNO subtrai; RESTAURACAO soma novamente o mesmo credito de referencia';
+COMMENT ON COLUMN tb_movimentacoes_pontos.movimentacao_referencia_id IS 'ESTORNO/RESTAURACAO devem apontar para o CREDITO original da mesma origem e do mesmo valor';
+COMMENT ON COLUMN tb_movimentacoes_pontos.idempotency_key IS 'Chave unica gerada pela API para tornar retries idempotentes';
+COMMENT ON COLUMN tb_movimentacoes_pontos.redis_sincronizado IS 'FALSE enquanto a projecao equivalente ainda nao foi aplicada ao Redis';
+
+-- Um unico credito inicial por origem. Estornos/restauracoes podem ocorrer mais
+-- de uma vez durante oscilacoes de moderacao, protegidos por idempotency_key.
+CREATE UNIQUE INDEX uq_mov_pontos_credito_postagem
+    ON tb_movimentacoes_pontos (postagem_id)
+    WHERE origem_tipo = 'POSTAGEM' AND tipo_movimentacao = 'CREDITO';
+
+CREATE UNIQUE INDEX uq_mov_pontos_credito_quiz
+    ON tb_movimentacoes_pontos (tentativa_quiz_id)
+    WHERE origem_tipo = 'QUIZ' AND tipo_movimentacao = 'CREDITO';
+
+-- Indices minimos para historico, retry Redis e calculo de teto diario.
+CREATE INDEX idx_mov_pontos_usuario_ocorrido
+    ON tb_movimentacoes_pontos (usuario_id, ocorrido_em);
+CREATE INDEX idx_mov_pontos_condominio_ocorrido
+    ON tb_movimentacoes_pontos (condominio_id, ocorrido_em);
+CREATE INDEX idx_mov_pontos_postagem
+    ON tb_movimentacoes_pontos (postagem_id);
+CREATE INDEX idx_mov_pontos_tentativa_quiz
+    ON tb_movimentacoes_pontos (tentativa_quiz_id);
+CREATE INDEX idx_mov_pontos_redis_pendente
+    ON tb_movimentacoes_pontos (redis_sincronizado, ocorrido_em);
+CREATE INDEX idx_mov_pontos_postagem_tipo
+    ON tb_movimentacoes_pontos (postagem_id, tipo_movimentacao);
+CREATE INDEX idx_postagens_janela_validacao
+    ON tb_postagens (data_limite_analise, resolvido_em);
+CREATE INDEX idx_postagens_usuario_categoria_data
+    ON tb_postagens (usuario_id, categoria_id, data_postagem);
+CREATE INDEX idx_tentativas_quiz_usuario_quiz_aprovado
+    ON tb_tentativas_quiz (usuario_id, quiz_id, aprovado);
+
+-- CHECKs nao conseguem consultar outra linha. Este trigger garante que todo
+-- ESTORNO/RESTAURACAO referencia um CREDITO da mesma origem, usuario e valor.
+CREATE OR REPLACE FUNCTION fn_validar_referencia_movimentacao_pontos()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_ref tb_movimentacoes_pontos%ROWTYPE;
+BEGIN
+    IF NEW.tipo_movimentacao IN ('ESTORNO', 'RESTAURACAO') THEN
+        SELECT *
+          INTO v_ref
+          FROM tb_movimentacoes_pontos
+         WHERE id_movimentacao = NEW.movimentacao_referencia_id;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Movimentacao de referencia % nao encontrada', NEW.movimentacao_referencia_id;
+        END IF;
+
+        IF v_ref.tipo_movimentacao <> 'CREDITO' THEN
+            RAISE EXCEPTION 'ESTORNO/RESTAURACAO deve referenciar um CREDITO original';
+        END IF;
+
+        IF v_ref.usuario_id <> NEW.usuario_id
+           OR v_ref.origem_tipo <> NEW.origem_tipo
+           OR v_ref.pontos <> NEW.pontos
+           OR v_ref.postagem_id IS DISTINCT FROM NEW.postagem_id
+           OR v_ref.tentativa_quiz_id IS DISTINCT FROM NEW.tentativa_quiz_id THEN
+            RAISE EXCEPTION 'Movimentacao de referencia nao corresponde a mesma origem/usuario/valor';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_validar_referencia_movimentacao_pontos
+BEFORE INSERT OR UPDATE OF movimentacao_referencia_id, tipo_movimentacao, pontos,
+                         usuario_id, origem_tipo, postagem_id, tentativa_quiz_id
+ON tb_movimentacoes_pontos
+FOR EACH ROW
+EXECUTE FUNCTION fn_validar_referencia_movimentacao_pontos();
+
+
+
+-- ============================================================================
+-- SECAO 10 - AUDITORIA (CLASS TABLE INHERITANCE)
+-- ============================================================================
+
 
 CREATE TABLE tb_log_auditoria (
     id_auditoria              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -563,14 +767,14 @@ COMMENT ON COLUMN tb_log_auditoria_usuarios_condominios.data_saida_novo IS 'data
 -- Dialeto: PostgreSQL 14+
 --
 -- Conteudo:
---   SECAO 10 - FUNCTIONS  (2)  : regras de negocio criticas, reutilizaveis
---   SECAO 11 - PROCEDURES (2)  : rotinas transacionais criticas (moderacao
+--   SECAO 11 - FUNCTIONS  (3+)  : regras de negocio criticas, reutilizaveis
+--   SECAO 12 - PROCEDURES (4)  : rotinas transacionais criticas (moderacao
 --                                 de tb_postagens e recalculo de trust score)
---   SECAO 12 - TRIGGERS DE AUDITORIA (3 tabelas) : populam automaticamente
+--   SECAO 13 - TRIGGERS DE AUDITORIA (3 tabelas) : populam automaticamente
 --                                 as tabelas de auditoria ja existentes no
 --                                 schema (tb_log_auditoria + subtipos),
 --                                 registrando NEW, OLD, TG_OP e CURRENT_USER
---   SECAO 13 - OTIMIZACAO      : casos de analise com EXPLAIN ANALYZE e
+--   SECAO 14 - OTIMIZACAO      : casos de analise com EXPLAIN ANALYZE e
 --                                 indices criados para eliminar Seq Scans
 --
 -- Todos os objetos usam CREATE OR REPLACE / IF NOT EXISTS, portanto o
@@ -579,33 +783,36 @@ COMMENT ON COLUMN tb_log_auditoria_usuarios_condominios.data_saida_novo IS 'data
 
 
 -- ============================================================================
--- SECAO 10 - FUNCTIONS (REGRAS DE NEGOCIO)
+-- SECAO 11 - FUNCTIONS (REGRAS DE NEGOCIO)
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
 -- FUNCTION 1: fn_pontos_disponiveis_postagem
--- Regra de negocio: cada categoria de residuo tem um "pontos_base" concedido
--- por postagem aprovada, mas pode existir um teto de pontos por usuario por
--- ciclo (mes corrente) na mesma categoria (tb_lkp_categorias_residuos.limite_pontos_ciclo).
--- Esta function calcula quantos pontos uma nova postagem realmente deve
--- conceder ao usuario, respeitando o teto do ciclo.
+-- Regra de negocio: cada categoria possui pontos_base e, opcionalmente, um
+-- teto DIARIO por usuario. O calculo usa o saldo liquido do ledger oficial:
+-- CREDITO + RESTAURACAO - ESTORNO. A data considerada e a data da POSTAGEM,
+-- evitando que uma restauracao posterior consuma o teto do dia da restauracao.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION fn_pontos_disponiveis_postagem(
     p_usuario_id      INTEGER,
     p_categoria_id    INTEGER,
-    p_data_referencia TIMESTAMPTZ DEFAULT now()
+    p_data_referencia TIMESTAMPTZ DEFAULT now(),
+    p_timezone        TEXT DEFAULT 'America/Sao_Paulo'
 )
 RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
     v_pontos_base      INTEGER;
-    v_limite_ciclo     INTEGER;
-    v_pontos_ja_ganhos INTEGER;
+    v_limite_diario    INTEGER;
+    v_pontos_validos   INTEGER;
     v_pontos_conceder  INTEGER;
+    v_data_local       DATE;
+    v_inicio_dia       TIMESTAMPTZ;
+    v_fim_dia          TIMESTAMPTZ;
 BEGIN
-    SELECT pontos_base, limite_pontos_ciclo
-      INTO v_pontos_base, v_limite_ciclo
+    SELECT pontos_base, limite_pontos_diario
+      INTO v_pontos_base, v_limite_diario
       FROM tb_lkp_categorias_residuos
      WHERE id_categoria = p_categoria_id;
 
@@ -613,30 +820,48 @@ BEGIN
         RAISE EXCEPTION 'Categoria de residuo % nao encontrada', p_categoria_id;
     END IF;
 
-    -- Sem teto configurado: concede o valor cheio da categoria
-    IF v_limite_ciclo IS NULL THEN
+    IF v_limite_diario IS NULL THEN
         RETURN v_pontos_base;
     END IF;
 
-    -- Soma os pontos ja concedidos ao usuario nessa categoria, no mes corrente,
-    -- considerando apenas tb_postagens aprovadas
-    SELECT COALESCE(SUM(cr.pontos_base), 0)
-      INTO v_pontos_ja_ganhos
-      FROM tb_postagens p
-      JOIN tb_lkp_categorias_residuos cr        ON cr.id_categoria = p.categoria_id
-      JOIN tb_lkp_status_validacoes_postagens svp ON svp.id_status_validacao = p.status_validacao_id
-     WHERE p.usuario_id   = p_usuario_id
-       AND p.categoria_id = p_categoria_id
-       AND svp.nome_status = 'aprovada'
-       AND date_trunc('month', p.data_postagem) = date_trunc('month', p_data_referencia);
+    -- Converte a referencia para o dia civil do timezone configurado e cria
+    -- limites TIMESTAMPTZ para permitir filtro eficiente em data_postagem.
+    v_data_local := (p_data_referencia AT TIME ZONE p_timezone)::DATE;
+    v_inicio_dia := (v_data_local::TIMESTAMP AT TIME ZONE p_timezone);
+    v_fim_dia    := ((v_data_local + 1)::TIMESTAMP AT TIME ZONE p_timezone);
 
-    v_pontos_conceder := GREATEST(LEAST(v_pontos_base, v_limite_ciclo - v_pontos_ja_ganhos), 0);
+    SELECT COALESCE(SUM(
+        CASE mp.tipo_movimentacao
+            WHEN 'CREDITO'     THEN mp.pontos
+            WHEN 'RESTAURACAO' THEN mp.pontos
+            WHEN 'ESTORNO'     THEN -mp.pontos
+            ELSE 0
+        END
+    ), 0)::INTEGER
+      INTO v_pontos_validos
+      FROM tb_movimentacoes_pontos mp
+      JOIN tb_postagens p ON p.id_postagem = mp.postagem_id
+     WHERE mp.origem_tipo = 'POSTAGEM'
+       AND mp.usuario_id = p_usuario_id
+       AND mp.categoria_id = p_categoria_id
+       AND p.data_postagem >= v_inicio_dia
+       AND p.data_postagem <  v_fim_dia;
+
+    IF v_pontos_validos < 0 THEN
+        RAISE EXCEPTION 'Inconsistencia no ledger: saldo diario negativo para usuario %, categoria %',
+            p_usuario_id, p_categoria_id;
+    END IF;
+
+    v_pontos_conceder := GREATEST(
+        LEAST(v_pontos_base, v_limite_diario - v_pontos_validos),
+        0
+    );
 
     RETURN v_pontos_conceder;
 END;
 $$;
 COMMENT ON FUNCTION fn_pontos_disponiveis_postagem IS
-    'Calcula quantos pontos uma postagem pode conceder ao usuario, respeitando o teto (limite_pontos_ciclo) da categoria no ciclo mensal corrente.';
+    'Calcula pontos disponiveis para uma nova postagem usando teto diario e saldo liquido do ledger oficial tb_movimentacoes_pontos, no timezone informado.';
 
 
 -- ----------------------------------------------------------------------------
@@ -684,22 +909,20 @@ COMMENT ON FUNCTION fn_calcular_trust_score IS
 
 
 -- ============================================================================
--- SECAO 11 - PROCEDURES (ROTINAS TRANSACIONAIS CRITICAS)
+-- SECAO 12 - PROCEDURES (ROTINAS TRANSACIONAIS CRITICAS)
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
 -- PROCEDURE 1: sp_processar_voto_postagem
--- Regra de negocio central da moderacao comunitaria: registra o voto
--- (aprovar/denunciar) de um morador sobre uma postagem, aplica o peso do
--- nivel de confianca do votante, atualiza o saldo_confianca da postagem e,
--- ao atingir os limiares de aprovacao/reprovacao, resolve definitivamente
--- o status da postagem (status_validacao_id + resolvido_em).
--- Usa FOR UPDATE para evitar condicao de corrida entre votos concorrentes.
+-- Registra o voto ponderado durante a janela comunitaria. Cruzar -5 nao encerra
+-- a postagem: apenas muda o estado desejado da pontuacao para inativo e marca
+-- reconciliacao pendente. Se a postagem recuperar saldo >= 0 ainda dentro das
+-- 24h, a pontuacao volta a ativa e a API deve registrar RESTAURACAO.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE sp_processar_voto_postagem(
     p_postagem_id        INTEGER,
     p_usuario_id         INTEGER,
-    p_tipo_voto          VARCHAR,          -- 'aprovar' ou 'denunciar'
+    p_tipo_voto          VARCHAR,
     p_motivo_denuncia_id INTEGER DEFAULT NULL,
     p_comentario         VARCHAR DEFAULT NULL
 )
@@ -708,16 +931,17 @@ AS $$
 DECLARE
     v_condominio_id       INTEGER;
     v_resolvido_em        TIMESTAMPTZ;
+    v_data_limite         TIMESTAMPTZ;
     v_peso                INTEGER;
     v_tipo_voto_id        INTEGER;
     v_saldo_atual         INTEGER;
     v_novo_saldo          INTEGER;
-    v_status_aprovada_id  INTEGER;
-    v_status_reprovada_id INTEGER;
-    v_limite_aprovacao    CONSTANT INTEGER := 5;   -- regra: saldo >= 5 aprova automaticamente
-    v_limite_reprovacao   CONSTANT INTEGER := -5;  -- regra: saldo <= -5 reprova automaticamente
+    v_pontuacao_ativa     BOOLEAN;
+    v_nova_pontuacao_ativa BOOLEAN;
+    v_mudou_estado        BOOLEAN := FALSE;
 BEGIN
-    SELECT id_tipo_voto INTO v_tipo_voto_id
+    SELECT id_tipo_voto
+      INTO v_tipo_voto_id
       FROM tb_lkp_tipos_votos_postagens
      WHERE nome_tipo = p_tipo_voto;
 
@@ -729,9 +953,21 @@ BEGIN
         RAISE EXCEPTION 'motivo_denuncia_id e obrigatorio para votos de denuncia';
     END IF;
 
-    -- Trava a linha da postagem para evitar corrida entre votos simultaneos
-    SELECT condominio_id, saldo_confianca, resolvido_em
-      INTO v_condominio_id, v_saldo_atual, v_resolvido_em
+    IF p_tipo_voto = 'aprovar' AND p_motivo_denuncia_id IS NOT NULL THEN
+        RAISE EXCEPTION 'motivo_denuncia_id deve ser nulo para votos de aprovacao';
+    END IF;
+
+    -- Trava a postagem para serializar votos concorrentes.
+    SELECT condominio_id,
+           saldo_confianca,
+           resolvido_em,
+           data_limite_analise,
+           pontuacao_ativa
+      INTO v_condominio_id,
+           v_saldo_atual,
+           v_resolvido_em,
+           v_data_limite,
+           v_pontuacao_ativa
       FROM tb_postagens
      WHERE id_postagem = p_postagem_id
      FOR UPDATE;
@@ -741,58 +977,229 @@ BEGIN
     END IF;
 
     IF v_resolvido_em IS NOT NULL THEN
-        RAISE EXCEPTION 'Postagem % ja foi resolvida e nao aceita novos votos', p_postagem_id;
+        RAISE EXCEPTION 'Postagem % ja possui decisao de encerramento e nao aceita novos votos', p_postagem_id;
     END IF;
 
-    -- Peso do voto = peso do nivel de confianca do votante NESSE condominio
-    SELECT nc.peso_voto INTO v_peso
+    IF now() >= v_data_limite THEN
+        RAISE EXCEPTION 'Janela comunitaria da postagem % encerrou em %', p_postagem_id, v_data_limite;
+    END IF;
+
+    SELECT nc.peso_voto
+      INTO v_peso
       FROM tb_rel_usuarios_condominios uco
-      JOIN tb_lkp_niveis_confianca nc ON nc.id_nivel_confianca = uco.nivel_confianca_id
-     WHERE uco.usuario_id     = p_usuario_id
-       AND uco.condominio_id  = v_condominio_id
-       AND uco.aprovado       = TRUE;
+      JOIN tb_lkp_niveis_confianca nc
+        ON nc.id_nivel_confianca = uco.nivel_confianca_id
+     WHERE uco.usuario_id    = p_usuario_id
+       AND uco.condominio_id = v_condominio_id
+       AND uco.aprovado      = TRUE
+       AND uco.data_saida IS NULL;
 
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Usuario % nao possui vinculo aprovado com o condominio da postagem', p_usuario_id;
+        RAISE EXCEPTION 'Usuario % nao possui vinculo aprovado e ativo com o condominio da postagem', p_usuario_id;
     END IF;
 
-    -- Registra o voto (UNIQUE(postagem_id, usuario_id) impede voto duplicado)
-    INSERT INTO tb_rel_votos_postagens (postagem_id, usuario_id, tipo_voto_id, motivo_denuncia_id, peso_aplicado, comentario)
-    VALUES (p_postagem_id, p_usuario_id, v_tipo_voto_id, p_motivo_denuncia_id, v_peso, p_comentario);
+    INSERT INTO tb_rel_votos_postagens (
+        postagem_id,
+        usuario_id,
+        tipo_voto_id,
+        motivo_denuncia_id,
+        peso_aplicado,
+        comentario
+    ) VALUES (
+        p_postagem_id,
+        p_usuario_id,
+        v_tipo_voto_id,
+        p_motivo_denuncia_id,
+        v_peso,
+        p_comentario
+    );
 
-    v_novo_saldo := v_saldo_atual + CASE WHEN p_tipo_voto = 'aprovar' THEN v_peso ELSE -v_peso END;
+    v_novo_saldo := v_saldo_atual
+        + CASE WHEN p_tipo_voto = 'aprovar' THEN v_peso ELSE -v_peso END;
+
+    -- Histerese da pontuacao:
+    --   ativa  -> inativa ao atingir <= -5;
+    --   inativa -> ativa somente quando recuperar >= 0.
+    v_nova_pontuacao_ativa := v_pontuacao_ativa;
+
+    IF v_pontuacao_ativa = TRUE AND v_novo_saldo <= -5 THEN
+        v_nova_pontuacao_ativa := FALSE;
+        v_mudou_estado := TRUE;
+    ELSIF v_pontuacao_ativa = FALSE AND v_novo_saldo >= 0 THEN
+        v_nova_pontuacao_ativa := TRUE;
+        v_mudou_estado := TRUE;
+    END IF;
 
     UPDATE tb_postagens
-       SET saldo_confianca = v_novo_saldo
+       SET saldo_confianca = v_novo_saldo,
+           pontuacao_ativa = v_nova_pontuacao_ativa,
+           pontuacao_reconciliacao_pendente =
+               pontuacao_reconciliacao_pendente OR v_mudou_estado
      WHERE id_postagem = p_postagem_id;
 
-    SELECT id_status_validacao INTO v_status_aprovada_id  FROM tb_lkp_status_validacoes_postagens WHERE nome_status = 'aprovada';
-    SELECT id_status_validacao INTO v_status_reprovada_id FROM tb_lkp_status_validacoes_postagens WHERE nome_status = 'reprovada';
-
-    IF v_novo_saldo >= v_limite_aprovacao THEN
-        UPDATE tb_postagens
-           SET status_validacao_id = v_status_aprovada_id,
-               resolvido_em        = now()
-         WHERE id_postagem = p_postagem_id;
-    ELSIF v_novo_saldo <= v_limite_reprovacao THEN
-        UPDATE tb_postagens
-           SET status_validacao_id = v_status_reprovada_id,
-               resolvido_em        = now()
-         WHERE id_postagem = p_postagem_id;
-    END IF;
+    -- Nao altera status_validacao_id nem resolvido_em aqui.
+    -- A API deve reconciliar o ledger quando a flag pendente for TRUE.
 END;
 $$;
 COMMENT ON PROCEDURE sp_processar_voto_postagem IS
-    'Registra um voto de moderacao (aprovar/denunciar), atualiza o saldo_confianca da postagem e resolve automaticamente o status quando os limiares sao atingidos.';
+    'Registra voto ponderado apenas durante a janela de 24h, sem encerrar a postagem ao cruzar limiares. Sinaliza reconciliacao de pontos em transicoes <= -5 e recuperacao >= 0.';
 
 
 -- ----------------------------------------------------------------------------
--- PROCEDURE 2: sp_atualizar_trust_score
+-- PROCEDURE 2: sp_encerrar_janela_postagem
+-- Fecha a janela comunitaria e aplica a regra definitiva:
+--   saldo >= 0  -> aprovada
+--   -1 a -4     -> em_analise
+--   saldo <= -5 -> reprovada
+-- Para aprovada/reprovada, tambem ajusta o estado desejado da pontuacao e
+-- sinaliza reconciliacao se necessario. EM_ANALISE preserva o estado atual.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE sp_encerrar_janela_postagem(
+    p_postagem_id INTEGER
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_saldo                  INTEGER;
+    v_data_limite            TIMESTAMPTZ;
+    v_resolvido_em           TIMESTAMPTZ;
+    v_pontuacao_ativa        BOOLEAN;
+    v_nova_pontuacao_ativa   BOOLEAN;
+    v_status_destino_id      INTEGER;
+    v_status_destino_nome    VARCHAR(30);
+    v_mudou_estado           BOOLEAN := FALSE;
+BEGIN
+    SELECT saldo_confianca,
+           data_limite_analise,
+           resolvido_em,
+           pontuacao_ativa
+      INTO v_saldo,
+           v_data_limite,
+           v_resolvido_em,
+           v_pontuacao_ativa
+      FROM tb_postagens
+     WHERE id_postagem = p_postagem_id
+     FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Postagem % nao encontrada', p_postagem_id;
+    END IF;
+
+    IF v_resolvido_em IS NOT NULL THEN
+        RETURN; -- idempotente para jobs de fechamento
+    END IF;
+
+    IF now() < v_data_limite THEN
+        RAISE EXCEPTION 'Janela comunitaria da postagem % ainda esta aberta ate %', p_postagem_id, v_data_limite;
+    END IF;
+
+    IF v_saldo >= 0 THEN
+        v_status_destino_nome := 'aprovada';
+    ELSIF v_saldo <= -5 THEN
+        v_status_destino_nome := 'reprovada';
+    ELSE
+        v_status_destino_nome := 'em_analise';
+    END IF;
+
+    SELECT id_status_validacao
+      INTO v_status_destino_id
+      FROM tb_lkp_status_validacoes_postagens
+     WHERE nome_status = v_status_destino_nome;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Status de validacao % nao cadastrado', v_status_destino_nome;
+    END IF;
+
+    v_nova_pontuacao_ativa := v_pontuacao_ativa;
+    IF v_status_destino_nome = 'aprovada' THEN
+        v_nova_pontuacao_ativa := TRUE;
+    ELSIF v_status_destino_nome = 'reprovada' THEN
+        v_nova_pontuacao_ativa := FALSE;
+    END IF;
+
+    v_mudou_estado := (v_nova_pontuacao_ativa IS DISTINCT FROM v_pontuacao_ativa);
+
+    UPDATE tb_postagens
+       SET status_validacao_id = v_status_destino_id,
+           resolvido_em = now(),
+           pontuacao_ativa = v_nova_pontuacao_ativa,
+           pontuacao_reconciliacao_pendente =
+               pontuacao_reconciliacao_pendente OR v_mudou_estado
+     WHERE id_postagem = p_postagem_id;
+END;
+$$;
+COMMENT ON PROCEDURE sp_encerrar_janela_postagem IS
+    'Encerra idempotentemente a janela comunitaria de 24h: >=0 aprovada, -1..-4 em_analise, <=-5 reprovada.';
+
+
+-- ----------------------------------------------------------------------------
+-- PROCEDURE 3: sp_decidir_postagem_analise
+-- Decisao manual posterior para uma postagem que terminou EM_ANALISE.
+-- A autorizacao (sindico/admin) deve ser garantida pela API/Spring Security.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE sp_decidir_postagem_analise(
+    p_postagem_id INTEGER,
+    p_aprovar     BOOLEAN
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_status_atual_nome       VARCHAR(30);
+    v_status_destino_nome     VARCHAR(30);
+    v_status_destino_id       INTEGER;
+    v_pontuacao_ativa         BOOLEAN;
+    v_nova_pontuacao_ativa    BOOLEAN;
+    v_mudou_estado            BOOLEAN;
+BEGIN
+    SELECT sv.nome_status, p.pontuacao_ativa
+      INTO v_status_atual_nome, v_pontuacao_ativa
+      FROM tb_postagens p
+      JOIN tb_lkp_status_validacoes_postagens sv
+        ON sv.id_status_validacao = p.status_validacao_id
+     WHERE p.id_postagem = p_postagem_id
+     FOR UPDATE OF p;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Postagem % nao encontrada', p_postagem_id;
+    END IF;
+
+    IF v_status_atual_nome <> 'em_analise' THEN
+        RAISE EXCEPTION 'Postagem % nao esta em analise; status atual: %', p_postagem_id, v_status_atual_nome;
+    END IF;
+
+    v_status_destino_nome  := CASE WHEN p_aprovar THEN 'aprovada' ELSE 'reprovada' END;
+    v_nova_pontuacao_ativa := p_aprovar;
+    v_mudou_estado := (v_nova_pontuacao_ativa IS DISTINCT FROM v_pontuacao_ativa);
+
+    SELECT id_status_validacao
+      INTO v_status_destino_id
+      FROM tb_lkp_status_validacoes_postagens
+     WHERE nome_status = v_status_destino_nome;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Status de validacao % nao cadastrado', v_status_destino_nome;
+    END IF;
+
+    UPDATE tb_postagens
+       SET status_validacao_id = v_status_destino_id,
+           resolvido_em = now(),
+           pontuacao_ativa = v_nova_pontuacao_ativa,
+           pontuacao_reconciliacao_pendente =
+               pontuacao_reconciliacao_pendente OR v_mudou_estado
+     WHERE id_postagem = p_postagem_id;
+END;
+$$;
+COMMENT ON PROCEDURE sp_decidir_postagem_analise IS
+    'Finaliza manualmente uma postagem EM_ANALISE como aprovada ou reprovada e sinaliza reconciliacao de pontos quando necessario.';
+
+
+-- ----------------------------------------------------------------------------
+-- PROCEDURE 4: sp_atualizar_trust_score
 -- Regra de negocio: recalcula, a partir dos dados reais de tb_postagens e
 -- tb_rel_votos_postagens, os contadores de confianca de um usuario dentro de um
 -- condominio (tb_rel_usuarios_condominios) e promove o usuario a "pessoa_confiavel"
 -- quando o trust_score ultrapassa o limiar configurado. Reutiliza a
--- fn_calcular_trust_score (SECAO 10) para a formula de calculo.
+-- fn_calcular_trust_score (SECAO 11) para a formula de calculo.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE sp_atualizar_trust_score(
     p_usuario_id    INTEGER,
@@ -816,6 +1223,7 @@ BEGIN
      WHERE p.usuario_id    = p_usuario_id
        AND p.condominio_id = p_condominio_id
        AND svp.nome_status = 'aprovada'
+       AND p.resolvido_em IS NOT NULL
        AND NOT EXISTS (
             SELECT 1
               FROM tb_rel_votos_postagens vp
@@ -838,7 +1246,8 @@ BEGIN
       JOIN tb_lkp_tipos_votos_postagens tvp        ON tvp.id_tipo_voto = vp.tipo_voto_id
       JOIN tb_postagens p                      ON p.id_postagem = vp.postagem_id
       JOIN tb_lkp_status_validacoes_postagens svp  ON svp.id_status_validacao = p.status_validacao_id
-     WHERE vp.usuario_id = p_usuario_id;
+     WHERE vp.usuario_id = p_usuario_id
+       AND p.resolvido_em IS NOT NULL;
 
     IF v_denuncias_realizadas > 0 THEN
         v_taxa_acerto := ROUND(100.0 * v_denuncias_procedentes / v_denuncias_realizadas, 2);
@@ -882,7 +1291,7 @@ COMMENT ON PROCEDURE sp_atualizar_trust_score IS
 
 
 -- ============================================================================
--- SECAO 12 - TRIGGERS DE AUDITORIA
+-- SECAO 13 - TRIGGERS DE AUDITORIA
 -- Popula automaticamente as tabelas ja modeladas no schema original
 -- (tb_log_auditoria + subtipos tb_log_auditoria_postagens / tb_log_auditoria_agendamentos_coletas
 -- / tb_log_auditoria_usuarios_condominios), registrando NEW, OLD, TG_OP e CURRENT_USER
@@ -1128,7 +1537,7 @@ CREATE OR REPLACE TRIGGER trg_auditoria_usuarios_condominios
 
 
 -- ============================================================================
--- SECAO 13 - OTIMIZACAO (EXPLAIN ANALYZE + INDICES)
+-- SECAO 14 - OTIMIZACAO (EXPLAIN ANALYZE + INDICES)
 --
 -- Metodologia: para cada consulta critica do fluxo de moderacao/dashboard,
 -- o comando EXPLAIN ANALYZE abaixo permite comparar o plano de execucao
@@ -1235,6 +1644,10 @@ CREATE INDEX IF NOT EXISTS idx_tentativas_quiz_quiz_id
 
 CREATE INDEX IF NOT EXISTS idx_moradores_condominio_id
     ON tb_moradores (condominio_id);
+-- Moradores por torre (ranking/listagem) e FK composta
+CREATE INDEX IF NOT EXISTS idx_moradores_torre_condominio
+    ON tb_moradores (torre_id, condominio_id)
+    WHERE torre_id IS NOT NULL;
 
 
 -- ============================================================================
@@ -1685,11 +2098,579 @@ GROUP BY
     md.descricao,
     md.ativo;
 
+-- ============================================================================
+-- SECAO 15 - DAU (USUARIOS ATIVOS DIARIOS)
+--
+-- tb_atividades_diarias_usuarios : 1 linha por usuario x dia civil (America/Sao_Paulo)
+--                                  em que o usuario abriu o app. A API faz UPSERT
+--                                  a cada sessao (ON CONFLICT (usuario_id, data_atividade)).
+-- tb_metricas_dau                : fotografia diaria consolidada (DAU/WAU/MAU,
+--                                  novos, stickiness), recalculada por
+--                                  sp_consolidar_metricas_dau (idempotente).
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS tb_atividades_diarias_usuarios (
+    id_atividade_diaria    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    usuario_id             INTEGER      NOT NULL,
+    data_atividade         DATE         NOT NULL,
+    plataforma             VARCHAR(10)  NOT NULL,
+    qtd_sessoes            SMALLINT     NOT NULL DEFAULT 1,
+    minutos_ativos         SMALLINT     NOT NULL DEFAULT 0,
+    qtd_acoes              INTEGER      NOT NULL DEFAULT 0,
+    primeira_atividade_em  TIMESTAMPTZ  NOT NULL,
+    ultima_atividade_em    TIMESTAMPTZ  NOT NULL,
+    CONSTRAINT fk_atividades_diarias_usuario_id FOREIGN KEY (usuario_id) REFERENCES tb_usuarios (id_usuario),
+    CONSTRAINT uq_atividades_diarias_usuario_data UNIQUE (usuario_id, data_atividade),
+    CONSTRAINT ck_atividades_diarias_plataforma CHECK (plataforma IN ('android', 'ios', 'web')),
+    CONSTRAINT ck_atividades_diarias_qtd_sessoes CHECK (qtd_sessoes > 0),
+    CONSTRAINT ck_atividades_diarias_minutos CHECK (minutos_ativos >= 0),
+    CONSTRAINT ck_atividades_diarias_qtd_acoes CHECK (qtd_acoes >= 0),
+    CONSTRAINT ck_atividades_diarias_intervalo CHECK (ultima_atividade_em >= primeira_atividade_em)
+);
+COMMENT ON TABLE tb_atividades_diarias_usuarios IS 'Base do DAU: uma linha por usuario por dia com atividade no app.';
+COMMENT ON COLUMN tb_atividades_diarias_usuarios.data_atividade IS 'Dia civil no fuso America/Sao_Paulo';
+COMMENT ON COLUMN tb_atividades_diarias_usuarios.plataforma IS 'Plataforma predominante do dia: android | ios | web';
+COMMENT ON COLUMN tb_atividades_diarias_usuarios.qtd_acoes IS 'Eventos relevantes no dia (postagens, votos, aulas, quizzes, navegacao)';
+
+-- O UNIQUE (usuario_id, data_atividade) ja atende buscas por usuario; este
+-- atende as janelas de data usadas no DAU/WAU/MAU.
+CREATE INDEX IF NOT EXISTS idx_atividades_diarias_data
+    ON tb_atividades_diarias_usuarios (data_atividade, usuario_id);
+
+CREATE TABLE IF NOT EXISTS tb_metricas_dau (
+    data_referencia     DATE          PRIMARY KEY,
+    dau                 INTEGER       NOT NULL,
+    wau                 INTEGER       NOT NULL,
+    mau                 INTEGER       NOT NULL,
+    novos_usuarios      INTEGER       NOT NULL,
+    usuarios_retornantes INTEGER      NOT NULL,
+    sessoes_total       INTEGER       NOT NULL,
+    minutos_medios      DECIMAL(6,2),
+    stickiness          DECIMAL(5,2),
+    calculado_em        TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    CONSTRAINT ck_metricas_dau_contagens CHECK (dau >= 0 AND wau >= dau AND mau >= wau),
+    CONSTRAINT ck_metricas_dau_novos CHECK (novos_usuarios + usuarios_retornantes = dau),
+    CONSTRAINT ck_metricas_dau_stickiness CHECK (stickiness IS NULL OR stickiness BETWEEN 0 AND 100)
+);
+COMMENT ON TABLE tb_metricas_dau IS 'Agregado diario de engajamento, gerado por sp_consolidar_metricas_dau.';
+COMMENT ON COLUMN tb_metricas_dau.wau IS 'Usuarios distintos ativos nos 7 dias ate data_referencia (inclusive)';
+COMMENT ON COLUMN tb_metricas_dau.mau IS 'Usuarios distintos ativos nos 30 dias ate data_referencia (inclusive)';
+COMMENT ON COLUMN tb_metricas_dau.novos_usuarios IS 'Usuarios cuja primeira atividade registrada e data_referencia';
+COMMENT ON COLUMN tb_metricas_dau.stickiness IS 'DAU / MAU * 100';
+
+CREATE TABLE tb_recuperacoes_senha (
+    id_esqueci_senha INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    usuario_id       INTEGER      NOT NULL,
+    token_hash       VARCHAR(255) NOT NULL,
+    expira_em        TIMESTAMPTZ  NOT NULL,
+    utilizado_em     TIMESTAMPTZ,
+
+    CONSTRAINT fk_esqueci_senha_usuario_id
+        FOREIGN KEY (usuario_id)
+        REFERENCES tb_usuarios (id_usuario),
+
+    CONSTRAINT uq_esqueci_senha_token_hash
+        UNIQUE (token_hash)
+);
+
+CREATE INDEX idx_esqueci_senha_usuario_id
+    ON tb_recuperacoes_senha (usuario_id);
+-- ----------------------------------------------------------------------------
+-- PROCEDURE 5: sp_consolidar_metricas_dau
+-- Recalcula tb_metricas_dau para cada dia do intervalo. Idempotente (UPSERT):
+-- o job diario da API chama com (current_date - 1, current_date - 1); cargas
+-- retroativas passam o intervalo inteiro.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE sp_consolidar_metricas_dau(
+    p_inicio DATE,
+    p_fim    DATE DEFAULT CURRENT_DATE
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF p_fim < p_inicio THEN
+        RAISE EXCEPTION 'Intervalo invalido: % > %', p_inicio, p_fim;
+    END IF;
+
+    INSERT INTO tb_metricas_dau (
+        data_referencia, dau, wau, mau, novos_usuarios, usuarios_retornantes,
+        sessoes_total, minutos_medios, stickiness, calculado_em
+    )
+    SELECT
+        g.dia,
+        j.dau,
+        j.wau,
+        j.mau,
+        n.novos,
+        j.dau - n.novos,
+        j.sessoes,
+        j.minutos_medios,
+        ROUND(100.0 * j.dau / NULLIF(j.mau, 0), 2),
+        now()
+    FROM generate_series(p_inicio, p_fim, INTERVAL '1 day') AS g0(ts)
+    CROSS JOIN LATERAL (SELECT g0.ts::DATE AS dia) g
+    CROSS JOIN LATERAL (
+        SELECT
+            COUNT(DISTINCT a.usuario_id) FILTER (WHERE a.data_atividade = g.dia)::INTEGER     AS dau,
+            COUNT(DISTINCT a.usuario_id) FILTER (WHERE a.data_atividade > g.dia - 7)::INTEGER AS wau,
+            COUNT(DISTINCT a.usuario_id)::INTEGER                                              AS mau,
+            COALESCE(SUM(a.qtd_sessoes) FILTER (WHERE a.data_atividade = g.dia), 0)::INTEGER  AS sessoes,
+            ROUND(AVG(a.minutos_ativos) FILTER (WHERE a.data_atividade = g.dia), 2)           AS minutos_medios
+          FROM tb_atividades_diarias_usuarios a
+         WHERE a.data_atividade BETWEEN g.dia - 29 AND g.dia
+    ) j
+    CROSS JOIN LATERAL (
+        SELECT COUNT(*)::INTEGER AS novos
+          FROM tb_atividades_diarias_usuarios h
+         WHERE h.data_atividade = g.dia
+           AND NOT EXISTS (
+                SELECT 1
+                  FROM tb_atividades_diarias_usuarios x
+                 WHERE x.usuario_id = h.usuario_id
+                   AND x.data_atividade < g.dia
+           )
+    ) n
+    ON CONFLICT (data_referencia) DO UPDATE
+       SET dau                  = EXCLUDED.dau,
+           wau                  = EXCLUDED.wau,
+           mau                  = EXCLUDED.mau,
+           novos_usuarios       = EXCLUDED.novos_usuarios,
+           usuarios_retornantes = EXCLUDED.usuarios_retornantes,
+           sessoes_total        = EXCLUDED.sessoes_total,
+           minutos_medios       = EXCLUDED.minutos_medios,
+           stickiness           = EXCLUDED.stickiness,
+           calculado_em         = EXCLUDED.calculado_em;
+END;
+$$;
+COMMENT ON PROCEDURE sp_consolidar_metricas_dau IS
+    'Consolida DAU/WAU/MAU, novos, retornantes e stickiness em tb_metricas_dau para o intervalo informado (UPSERT).';
+
+-- ----------------------------------------------------------------------------
+-- 17. DAU por tipo de usuario (quem usa o app em cada dia)
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW vw_dau_por_tipo_usuario AS
+SELECT
+    a.data_atividade,
+    tu.nome_tipo,
+    COUNT(*)::BIGINT                   AS dau,
+    SUM(a.qtd_sessoes)::BIGINT         AS sessoes,
+    ROUND(AVG(a.minutos_ativos), 2)    AS minutos_medios
+FROM tb_atividades_diarias_usuarios a
+JOIN tb_usuarios u            ON u.id_usuario = a.usuario_id
+JOIN tb_lkp_tipos_usuarios tu ON tu.id_tipo_usuario = u.tipo_usuario_id
+GROUP BY a.data_atividade, tu.nome_tipo;
+
+-- ----------------------------------------------------------------------------
+-- 18. Retencao por coorte mensal de cadastro (M0, M1, M2 ...)
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW vw_retencao_coortes_mensais AS
+WITH coortes AS (
+    SELECT id_usuario,
+           DATE_TRUNC('month', registro_em AT TIME ZONE 'America/Sao_Paulo')::DATE AS mes_coorte
+      FROM tb_usuarios
+),
+tamanho AS (
+    SELECT mes_coorte, COUNT(*)::BIGINT AS usuarios_coorte
+      FROM coortes
+     GROUP BY mes_coorte
+),
+atividade AS (
+    SELECT DISTINCT
+           c.mes_coorte,
+           a.usuario_id,
+           ((EXTRACT(YEAR FROM a.data_atividade) - EXTRACT(YEAR FROM c.mes_coorte)) * 12
+             + EXTRACT(MONTH FROM a.data_atividade) - EXTRACT(MONTH FROM c.mes_coorte))::INTEGER AS mes_relativo
+      FROM tb_atividades_diarias_usuarios a
+      JOIN coortes c ON c.id_usuario = a.usuario_id
+)
+SELECT
+    a.mes_coorte,
+    t.usuarios_coorte,
+    a.mes_relativo,
+    COUNT(*)::BIGINT AS usuarios_ativos,
+    ROUND(100.0 * COUNT(*) / t.usuarios_coorte, 2) AS taxa_retencao_percentual
+FROM atividade a
+JOIN tamanho t ON t.mes_coorte = a.mes_coorte
+WHERE a.mes_relativo >= 0
+GROUP BY a.mes_coorte, t.usuarios_coorte, a.mes_relativo;
+
+-- ============================================================================
+-- SECAO 16 - MIGRACAO (MAPA DE IDS LEGADO -> NOVO)
+-- ============================================================================
+-- Tabela de apoio do RPA de migracao: guarda, por entidade, qual id do banco
+-- legado virou qual id neste schema. Garante idempotencia (reexecucao nao
+-- duplica) e permite resolver FKs das entidades dependentes.
+-- Sem FK em novo_id de proposito: a coluna aponta para tabelas diferentes
+-- conforme a entidade.
+CREATE TABLE IF NOT EXISTS tb_migracao_ids_map (
+    entidade   TEXT        NOT NULL,
+    legacy_id  BIGINT      NOT NULL,
+    novo_id    BIGINT      NOT NULL,
+    migrado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT pk_migracao_ids_map PRIMARY KEY (entidade, legacy_id)
+);
+COMMENT ON TABLE tb_migracao_ids_map IS 'Mapa de ids legado -> novo usado pelo RPA de migracao (idempotencia e resolucao de FKs)';
+COMMENT ON COLUMN tb_migracao_ids_map.entidade IS 'Nome logico da entidade migrada (ex.: usuarios, condominios, postagens)';
+
+-- Busca reversa (novo -> legado) para auditoria e rollback da migracao.
+-- Nao e UNIQUE: varios registros legados podem convergir para o mesmo id novo (deduplicacao).
+CREATE INDEX IF NOT EXISTS idx_migracao_ids_map_entidade_novo_id
+    ON tb_migracao_ids_map (entidade, novo_id);
+
+-- ============================================================================
+-- SECAO 17 - SOLICITACOES DE COLETA E CHAT COOPERATIVA x CONDOMINIO
+-- ============================================================================
+
+COMMENT ON COLUMN tb_agendamentos_coletas.solicitado_por_usuario_id IS 'Usuario que abriu a solicitacao (sindico do condominio ou usuario da cooperativa)';
+COMMENT ON COLUMN tb_agendamentos_coletas.origem_solicitacao IS 'CONDOMINIO | COOPERATIVA - lado que abriu a solicitacao';
+COMMENT ON COLUMN tb_agendamentos_coletas.respondido_por_usuario_id IS 'Quem aceitou/recusou. Sempre o lado oposto a origem_solicitacao';
+COMMENT ON COLUMN tb_agendamentos_coletas.respondido_em IS 'Momento do aceite/recusa';
+
+-- Status usados no fluxo de coleta (idempotente). Mesmos nomes do populador:
+--   Agendado = pendente | Confirmado = aceita | Recusado | Realizado | Cancelado
+INSERT INTO tb_lkp_status_agendamentos (nome_status)
+SELECT v.nome
+  FROM (VALUES ('Agendado'), ('Confirmado'), ('Recusado'), ('Realizado'), ('Cancelado')) AS v(nome)
+ WHERE NOT EXISTS (SELECT 1 FROM tb_lkp_status_agendamentos s WHERE s.nome_status = v.nome);
+
+-- ----------------------------------------------------------------------------
+-- FUNCTION 3: fn_usuario_representa_lado
+-- TRUE se o usuario fala em nome do lado informado:
+--   CONDOMINIO  -> e o sindico atual do condominio
+--   COOPERATIVA -> e o usuario vinculado a cooperativa
+-- Reutilizada pelo agendamento e pelo chat.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_usuario_representa_lado(
+    p_usuario_id     INTEGER,
+    p_lado           VARCHAR,
+    p_condominio_id  INTEGER,
+    p_cooperativa_id INTEGER
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT CASE p_lado
+        WHEN 'CONDOMINIO' THEN EXISTS (
+            SELECT 1
+              FROM tb_condominios c
+              JOIN tb_sindicos s ON s.id_sindico = c.sindico_id
+             WHERE c.id_condominio = p_condominio_id
+               AND s.usuario_id    = p_usuario_id)
+        WHEN 'COOPERATIVA' THEN EXISTS (
+            SELECT 1
+              FROM tb_cooperativas coop
+             WHERE coop.id_cooperativa = p_cooperativa_id
+               AND coop.usuario_id     = p_usuario_id)
+        ELSE FALSE
+    END;
+$$;
+COMMENT ON FUNCTION fn_usuario_representa_lado IS
+    'Indica se o usuario representa o lado CONDOMINIO (sindico) ou COOPERATIVA de um par condominio/cooperativa.';
+
+-- ----------------------------------------------------------------------------
+-- TRIGGER: trg_validar_partes_agendamento
+-- Garante no banco que:
+--   1) o solicitante pertence ao lado de origem_solicitacao;
+--   2) quem aceita/recusa e o lado OPOSTO (condominio nao aprova a propria
+--      solicitacao e vice-versa).
+-- Transicoes de status (quem marca realizada/cancelada) ficam na API.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_trg_validar_partes_agendamento()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_lado_resposta VARCHAR(20);
+BEGIN
+    -- NULL so existe em linhas legadas nao migradas
+    IF NEW.solicitado_por_usuario_id IS NOT NULL
+       AND NOT fn_usuario_representa_lado(NEW.solicitado_por_usuario_id, NEW.origem_solicitacao,
+                                          NEW.condominio_id, NEW.cooperativa_id) THEN
+        RAISE EXCEPTION 'Usuario % nao representa o lado % deste agendamento',
+            NEW.solicitado_por_usuario_id, NEW.origem_solicitacao;
+    END IF;
+
+    IF NEW.respondido_por_usuario_id IS NOT NULL THEN
+        v_lado_resposta := CASE NEW.origem_solicitacao
+                               WHEN 'CONDOMINIO' THEN 'COOPERATIVA'
+                               ELSE 'CONDOMINIO'
+                           END;
+
+        IF NOT fn_usuario_representa_lado(NEW.respondido_por_usuario_id, v_lado_resposta,
+                                          NEW.condominio_id, NEW.cooperativa_id) THEN
+            RAISE EXCEPTION 'Somente o lado % pode aceitar/recusar esta solicitacao', v_lado_resposta;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_validar_partes_agendamento
+    BEFORE INSERT OR UPDATE OF solicitado_por_usuario_id, origem_solicitacao,
+                               respondido_por_usuario_id, condominio_id, cooperativa_id
+    ON tb_agendamentos_coletas
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_trg_validar_partes_agendamento();
+
+-- ----------------------------------------------------------------------------
+-- CHAT: uma conversa por par condominio x cooperativa.
+-- A cooperativa sempre inicia; depois o sindico pode responder.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tb_conversas (
+    id_conversa         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    condominio_id       INTEGER      NOT NULL,
+    cooperativa_id      INTEGER      NOT NULL,
+    criada_em           TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    ultima_mensagem_em  TIMESTAMPTZ,
+    ativa               BOOLEAN      NOT NULL DEFAULT TRUE,
+    CONSTRAINT fk_conversas_condominio_id FOREIGN KEY (condominio_id) REFERENCES tb_condominios (id_condominio),
+    CONSTRAINT fk_conversas_cooperativa_id FOREIGN KEY (cooperativa_id) REFERENCES tb_cooperativas (id_cooperativa),
+    CONSTRAINT uq_conversas_condominio_cooperativa UNIQUE (condominio_id, cooperativa_id)
+);
+COMMENT ON TABLE tb_conversas IS 'Canal de chat entre uma cooperativa e um condominio (sindico). Uma conversa por par.';
+COMMENT ON COLUMN tb_conversas.ultima_mensagem_em IS 'Atualizado por trigger a cada mensagem; ordena a caixa de entrada';
+COMMENT ON COLUMN tb_conversas.ativa IS 'FALSE bloqueia novas mensagens (ex.: parceria encerrada)';
+
+CREATE TABLE IF NOT EXISTS tb_mensagens_conversas (
+    id_mensagem           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    conversa_id           INTEGER      NOT NULL,
+    remetente_usuario_id  INTEGER      NOT NULL,
+    remetente_tipo        VARCHAR(20)  NOT NULL,
+    conteudo              TEXT         NOT NULL,
+    enviada_em            TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    lida_em               TIMESTAMPTZ,
+    CONSTRAINT fk_mensagens_conversas_conversa_id FOREIGN KEY (conversa_id) REFERENCES tb_conversas (id_conversa),
+    CONSTRAINT fk_mensagens_conversas_remetente_usuario_id FOREIGN KEY (remetente_usuario_id) REFERENCES tb_usuarios (id_usuario),
+    CONSTRAINT ck_mensagens_conversas_remetente_tipo CHECK (remetente_tipo IN ('COOPERATIVA', 'CONDOMINIO')),
+    CONSTRAINT ck_mensagens_conversas_conteudo CHECK (length(btrim(conteudo)) BETWEEN 1 AND 2000),
+    CONSTRAINT ck_mensagens_conversas_lida_em CHECK (lida_em IS NULL OR lida_em >= enviada_em)
+);
+COMMENT ON TABLE tb_mensagens_conversas IS 'Mensagens do chat cooperativa x condominio.';
+COMMENT ON COLUMN tb_mensagens_conversas.remetente_tipo IS 'COOPERATIVA | CONDOMINIO - validado contra o usuario por trigger';
+COMMENT ON COLUMN tb_mensagens_conversas.lida_em IS 'Preenchido quando o destinatario abre a conversa. NULL = nao lida';
+
+-- Historico paginado da conversa
+CREATE INDEX IF NOT EXISTS idx_mensagens_conversas_conversa_enviada
+    ON tb_mensagens_conversas (conversa_id, enviada_em DESC);
+-- Contador de nao lidas por conversa/lado
+CREATE INDEX IF NOT EXISTS idx_mensagens_conversas_nao_lidas
+    ON tb_mensagens_conversas (conversa_id, remetente_tipo)
+    WHERE lida_em IS NULL;
+-- Caixa de entrada do sindico e da cooperativa
+CREATE INDEX IF NOT EXISTS idx_conversas_cooperativa_ultima
+    ON tb_conversas (cooperativa_id, ultima_mensagem_em DESC);
+CREATE INDEX IF NOT EXISTS idx_conversas_condominio_ultima
+    ON tb_conversas (condominio_id, ultima_mensagem_em DESC);
+
+-- ----------------------------------------------------------------------------
+-- TRIGGER: trg_validar_mensagem_conversa
+-- Valida remetente x lado, exige que a cooperativa inicie a conversa e
+-- atualiza tb_conversas.ultima_mensagem_em.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_trg_validar_mensagem_conversa()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_condominio_id  INTEGER;
+    v_cooperativa_id INTEGER;
+    v_ativa          BOOLEAN;
+BEGIN
+    -- Trava a conversa para serializar a checagem de "primeira mensagem".
+    SELECT condominio_id, cooperativa_id, ativa
+      INTO v_condominio_id, v_cooperativa_id, v_ativa
+      FROM tb_conversas
+     WHERE id_conversa = NEW.conversa_id
+     FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Conversa % nao encontrada', NEW.conversa_id;
+    END IF;
+
+    IF NOT v_ativa THEN
+        RAISE EXCEPTION 'Conversa % esta inativa e nao aceita novas mensagens', NEW.conversa_id;
+    END IF;
+
+    IF NOT fn_usuario_representa_lado(NEW.remetente_usuario_id, NEW.remetente_tipo,
+                                      v_condominio_id, v_cooperativa_id) THEN
+        RAISE EXCEPTION 'Usuario % nao pode enviar mensagem como % nesta conversa',
+            NEW.remetente_usuario_id, NEW.remetente_tipo;
+    END IF;
+
+    IF NEW.remetente_tipo = 'CONDOMINIO'
+       AND NOT EXISTS (SELECT 1 FROM tb_mensagens_conversas WHERE conversa_id = NEW.conversa_id) THEN
+        RAISE EXCEPTION 'A conversa % deve ser iniciada pela cooperativa', NEW.conversa_id;
+    END IF;
+
+    UPDATE tb_conversas
+       -- GREATEST: mensagem com data antiga (carga historica) nao volta o relogio
+       SET ultima_mensagem_em = GREATEST(ultima_mensagem_em, NEW.enviada_em)
+     WHERE id_conversa = NEW.conversa_id;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_validar_mensagem_conversa
+    BEFORE INSERT ON tb_mensagens_conversas
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_trg_validar_mensagem_conversa();
+
+
+-- ============================================================================
+-- SECAO 18 - DASHBOARD DO SINDICO
+-- 1 linha por condominio. A API filtra por sindico_usuario_id (usuario logado).
+--   Materiais reciclados = postagens APROVADAS de forma definitiva
+--                          (resolvido_em preenchido), por categoria em JSON.
+--   Pontos               = saldo liquido do ledger (CREDITO + RESTAURACAO - ESTORNO).
+--   Quizzes              = tentativas concluidas no condominio (snapshot da
+--                          tentativa), com nota media geral e por quiz em JSON.
+-- ============================================================================
+
+-- tb_tentativas_quiz nao tinha indice por condominio
+CREATE INDEX IF NOT EXISTS idx_tentativas_quiz_condominio_id
+    ON tb_tentativas_quiz (condominio_id);
+
+CREATE OR REPLACE VIEW vw_dashboard_sindico AS
+WITH moradores AS (
+    SELECT m.condominio_id,
+           COUNT(*)::BIGINT AS total_moradores
+      FROM tb_moradores m
+     GROUP BY m.condominio_id
+),
+postagens AS (
+    SELECT p.condominio_id,
+           COUNT(*) FILTER (WHERE sv.nome_status = 'aprovada'   AND p.resolvido_em IS NOT NULL)::BIGINT AS materiais_reciclados,
+           COUNT(*) FILTER (WHERE p.resolvido_em IS NULL)::BIGINT                                        AS postagens_em_validacao,
+           COUNT(*) FILTER (WHERE sv.nome_status = 'em_analise' AND p.resolvido_em IS NOT NULL)::BIGINT AS postagens_aguardando_sindico,
+           COUNT(*) FILTER (WHERE sv.nome_status = 'reprovada'  AND p.resolvido_em IS NOT NULL)::BIGINT AS postagens_reprovadas
+      FROM tb_postagens p
+      JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+     GROUP BY p.condominio_id
+),
+materiais_categoria AS (
+    SELECT p.condominio_id,
+           cr.id_categoria,
+           cr.nome_categoria,
+           cr.cor_identificacao,
+           COUNT(*)::BIGINT AS quantidade
+      FROM tb_postagens p
+      JOIN tb_lkp_status_validacoes_postagens sv ON sv.id_status_validacao = p.status_validacao_id
+      JOIN tb_lkp_categorias_residuos cr         ON cr.id_categoria = p.categoria_id
+     WHERE sv.nome_status = 'aprovada'
+       AND p.resolvido_em IS NOT NULL
+     GROUP BY p.condominio_id, cr.id_categoria, cr.nome_categoria, cr.cor_identificacao
+),
+materiais_json AS (
+    SELECT condominio_id,
+           jsonb_agg(
+               jsonb_build_object(
+                   'id_categoria', id_categoria,
+                   'categoria',    nome_categoria,
+                   'cor',          cor_identificacao,
+                   'quantidade',   quantidade
+               ) ORDER BY quantidade DESC, nome_categoria
+           ) AS materiais_por_categoria
+      FROM materiais_categoria
+     GROUP BY condominio_id
+),
+pontos AS (
+    SELECT mp.condominio_id,
+           SUM(CASE WHEN mp.tipo_movimentacao = 'ESTORNO' THEN -mp.pontos ELSE mp.pontos END)::BIGINT AS pontos_total,
+           SUM(CASE WHEN mp.tipo_movimentacao = 'ESTORNO' THEN -mp.pontos ELSE mp.pontos END)
+               FILTER (WHERE mp.origem_tipo = 'POSTAGEM')::BIGINT AS pontos_postagens,
+           SUM(CASE WHEN mp.tipo_movimentacao = 'ESTORNO' THEN -mp.pontos ELSE mp.pontos END)
+               FILTER (WHERE mp.origem_tipo = 'QUIZ')::BIGINT     AS pontos_quizzes,
+           SUM(CASE WHEN mp.tipo_movimentacao = 'ESTORNO' THEN -mp.pontos ELSE mp.pontos END)
+               FILTER (WHERE mp.ocorrido_em >= (date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo')
+                                                AT TIME ZONE 'America/Sao_Paulo'))::BIGINT AS pontos_mes_atual
+      FROM tb_movimentacoes_pontos mp
+     WHERE mp.condominio_id IS NOT NULL
+     GROUP BY mp.condominio_id
+),
+quizzes AS (
+    SELECT tq.condominio_id,
+           COUNT(*) FILTER (WHERE tq.concluido_em IS NOT NULL)::BIGINT                   AS tentativas_concluidas,
+           COUNT(*) FILTER (WHERE tq.aprovado = TRUE)::BIGINT                            AS tentativas_aprovadas,
+           COUNT(DISTINCT tq.usuario_id) FILTER (WHERE tq.concluido_em IS NOT NULL)::BIGINT AS moradores_com_quiz,
+           ROUND(AVG(tq.nota) FILTER (WHERE tq.concluido_em IS NOT NULL), 2)             AS nota_media_quizzes,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE tq.aprovado = TRUE)
+                 / NULLIF(COUNT(*) FILTER (WHERE tq.concluido_em IS NOT NULL), 0), 2)    AS taxa_aprovacao_quizzes
+      FROM tb_tentativas_quiz tq
+     WHERE tq.condominio_id IS NOT NULL
+     GROUP BY tq.condominio_id
+),
+quizzes_detalhe AS (
+    SELECT tq.condominio_id,
+           q.id_quiz,
+           q.titulo_quiz,
+           COUNT(*)::BIGINT                               AS tentativas,
+           COUNT(*) FILTER (WHERE tq.aprovado = TRUE)::BIGINT AS aprovadas,
+           ROUND(AVG(tq.nota), 2)                         AS nota_media
+      FROM tb_tentativas_quiz tq
+      JOIN tb_quizzes q ON q.id_quiz = tq.quiz_id
+     WHERE tq.condominio_id IS NOT NULL
+       AND tq.concluido_em IS NOT NULL
+     GROUP BY tq.condominio_id, q.id_quiz, q.titulo_quiz
+),
+quizzes_json AS (
+    SELECT condominio_id,
+           jsonb_agg(
+               jsonb_build_object(
+                   'id_quiz',    id_quiz,
+                   'quiz',       titulo_quiz,
+                   'tentativas', tentativas,
+                   'aprovadas',  aprovadas,
+                   'nota_media', nota_media
+               ) ORDER BY titulo_quiz
+           ) AS notas_por_quiz
+      FROM quizzes_detalhe
+     GROUP BY condominio_id
+)
+SELECT
+    c.id_condominio,
+    c.nome_condominio,
+    s.usuario_id                                    AS sindico_usuario_id,
+    us.nome_usuario                                 AS nome_sindico,
+    COALESCE(mo.total_moradores, 0)                 AS total_moradores,
+    -- materiais reciclados
+    COALESCE(po.materiais_reciclados, 0)            AS materiais_reciclados,
+    COALESCE(po.postagens_em_validacao, 0)          AS postagens_em_validacao,
+    COALESCE(po.postagens_aguardando_sindico, 0)    AS postagens_aguardando_sindico,
+    COALESCE(po.postagens_reprovadas, 0)            AS postagens_reprovadas,
+    COALESCE(mj.materiais_por_categoria, '[]'::jsonb) AS materiais_por_categoria,
+    -- pontos
+    COALESCE(pt.pontos_total, 0)                    AS pontos_total,
+    COALESCE(pt.pontos_postagens, 0)                AS pontos_postagens,
+    COALESCE(pt.pontos_quizzes, 0)                  AS pontos_quizzes,
+    COALESCE(pt.pontos_mes_atual, 0)                AS pontos_mes_atual,
+    -- quizzes
+    COALESCE(qz.tentativas_concluidas, 0)           AS tentativas_quiz_concluidas,
+    COALESCE(qz.tentativas_aprovadas, 0)            AS tentativas_quiz_aprovadas,
+    COALESCE(qz.moradores_com_quiz, 0)              AS moradores_com_quiz,
+    qz.nota_media_quizzes,
+    qz.taxa_aprovacao_quizzes,
+    COALESCE(qj.notas_por_quiz, '[]'::jsonb)        AS notas_por_quiz
+FROM tb_condominios c
+LEFT JOIN tb_sindicos s      ON s.id_sindico   = c.sindico_id
+LEFT JOIN tb_usuarios us     ON us.id_usuario  = s.usuario_id
+LEFT JOIN moradores mo       ON mo.condominio_id = c.id_condominio
+LEFT JOIN postagens po       ON po.condominio_id = c.id_condominio
+LEFT JOIN materiais_json mj  ON mj.condominio_id = c.id_condominio
+LEFT JOIN pontos pt          ON pt.condominio_id = c.id_condominio
+LEFT JOIN quizzes qz         ON qz.condominio_id = c.id_condominio
+LEFT JOIN quizzes_json qj    ON qj.condominio_id = c.id_condominio;
+
+COMMENT ON VIEW vw_dashboard_sindico IS
+    'Dashboard do sindico: materiais reciclados (por categoria), pontos do ledger e notas dos quizzes por condominio. Filtrar por sindico_usuario_id ou id_condominio.';
+
 COMMIT;
 
 -- ============================================================================
 -- FIM DAS VIEWS ANALÍTICAS
 --
 -- ============================================================================
--- FIM DO SCRIPT (42 tabelas)
+-- FIM DO SCRIPT (49 tabelas)
 -- ============================================================================

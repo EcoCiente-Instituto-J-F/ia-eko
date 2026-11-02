@@ -6,6 +6,10 @@ coleção `QDRANT_COLLECTION` devolve os FAQs mais próximos com o payload:
 `palavras_chave` e `tipo`. O agente FAQ usa a `resposta_canonica` do melhor
 resultado acima de `QDRANT_MIN_SCORE` como resposta final.
 
+A mesma coleção guarda os trechos do RAG (`tipo=rag_trecho`, carregados por
+`src/etl/populate_qdrant.py`); `buscar_trechos` os devolve para o RAGService.
+Cada busca filtra pelo `tipo`, então FAQ e trechos não se misturam.
+
 Configuração vem de `Settings` (o `.env` só é lido em `src/core/config.py`).
 """
 
@@ -16,6 +20,7 @@ import time
 from typing import Any
 
 from src.core.config import Settings
+from src.etl.populate_qdrant import TIPO_FAQ, TIPO_TRECHO
 from src.observability.metrics import RAG_LATENCY
 from src.security.roles import normalize_profile
 from src.services.embedding_service import EmbeddingService
@@ -25,6 +30,12 @@ logger = logging.getLogger("ecociente.qdrant")
 
 class QdrantUnavailable(RuntimeError):
     pass
+
+
+def _filtro_tipo(tipo: str) -> Any:
+    from qdrant_client import models
+
+    return models.Filter(must=[models.FieldCondition(key="tipo", match=models.MatchValue(value=tipo))])
 
 
 class QdrantFaqService:
@@ -59,11 +70,14 @@ class QdrantFaqService:
             await self._client.close()
             self._client = None
 
-    async def buscar_no_qdrant(self, embedding: list[float], limite: int = 3) -> list[Any]:
+    async def buscar_no_qdrant(
+        self, embedding: list[float], limite: int = 3, *, tipo: str | None = None
+    ) -> list[Any]:
         try:
             resultados = await self.client.query_points(
                 collection_name=self.collection_name,
                 query=embedding,
+                query_filter=_filtro_tipo(tipo) if tipo else None,
                 limit=limite,
                 with_payload=True,
             )
@@ -74,9 +88,12 @@ class QdrantFaqService:
         return resultados.points
 
     async def buscar_faq(self, pergunta: str, limite: int | None = None) -> list[dict[str, Any]]:
+        _ = self.client  # sem QDRANT_URL falha aqui, antes de carregar o modelo de embedding
         started = time.perf_counter()
         embedding = await self.embedding_service.agerar_embedding(pergunta)
-        resultados = await self.buscar_no_qdrant(embedding=embedding, limite=limite or self.settings.qdrant_top_k)
+        resultados = await self.buscar_no_qdrant(
+            embedding=embedding, limite=limite or self.settings.qdrant_top_k, tipo=TIPO_FAQ
+        )
         RAG_LATENCY.labels(operation="qdrant_search").observe(time.perf_counter() - started)
 
         faqs_encontrados = []
@@ -95,6 +112,32 @@ class QdrantFaqService:
                 }
             )
         return faqs_encontrados
+
+    async def buscar_trechos(self, pergunta: str, limite: int) -> list[dict[str, Any]]:
+        """Trechos do RAG mais próximos da pergunta, na ordem de score."""
+        _ = self.client  # sem QDRANT_URL falha aqui, antes de carregar o modelo de embedding
+        started = time.perf_counter()
+        embedding = await self.embedding_service.agerar_embedding(pergunta)
+        resultados = await self.buscar_no_qdrant(embedding=embedding, limite=limite, tipo=TIPO_TRECHO)
+        RAG_LATENCY.labels(operation="search").observe(time.perf_counter() - started)
+        trechos = []
+        for resultado in resultados:
+            payload = resultado.payload or {}
+            trechos.append(
+                {
+                    "title": payload.get("title"),
+                    "source": payload.get("source"),
+                    "url": payload.get("url"),
+                    "chunk": payload.get("chunk"),
+                    "texto": payload.get("texto"),
+                    "score": resultado.score,
+                }
+            )
+        return trechos
+
+    async def contar(self, tipo: str) -> int:
+        resultado = await self.client.count(self.collection_name, count_filter=_filtro_tipo(tipo), exact=True)
+        return resultado.count
 
     def melhor_resposta(self, faqs: list[dict[str, Any]], perfil: str | None) -> dict[str, Any] | None:
         """Primeiro FAQ (ordem de score) acima do mínimo, com resposta, e
@@ -136,15 +179,11 @@ class QdrantFaqService:
         # A carga (src/etl/populate_qdrant.py) grava em cada ponto o modelo que
         # gerou o vetor. Modelo diferente do configurado = scores sem sentido,
         # e o sintoma seria silencioso ("não encontrei" ou resposta errada).
-        from qdrant_client import models
-
         # Só pontos da carga do FAQ carregam o modelo; outro conteúdo na coleção
         # não pode esconder uma divergência.
         pontos, _ = await self.client.scroll(
             self.collection_name,
-            scroll_filter=models.Filter(
-                must=[models.FieldCondition(key="tipo", match=models.MatchValue(value="faq_canonica"))]
-            ),
+            scroll_filter=_filtro_tipo(TIPO_FAQ),
             limit=1,
             with_payload=["embedding_model"],
         )

@@ -22,6 +22,8 @@ import logging
 import time
 from typing import Any
 
+from src.etl.populate_graph import DIFICULDADE_MIN_REPROVACOES, DIFICULDADE_MIN_TAXA
+
 logger = logging.getLogger("ecociente.etl.validate_graph")
 
 # chave → (SQL no Postgres, Cypher no grafo). Mesma semântica das regras do ETL.
@@ -37,6 +39,7 @@ CONTAGENS: dict[str, tuple[str, str]] = {
     "Curso": ("SELECT count(*) AS n FROM tb_cursos", "MATCH (n:Curso) RETURN count(n) AS n"),
     "Postagem": ("SELECT count(*) AS n FROM tb_postagens", "MATCH (n:Postagem) RETURN count(n) AS n"),
     "MORA_EM": ("SELECT count(*) AS n FROM tb_moradores", "MATCH (:Usuario)-[r:MORA_EM]->(:Condominio) RETURN count(r) AS n"),
+    "MORA_NA": ("SELECT count(*) AS n FROM tb_moradores WHERE torre_id IS NOT NULL", "MATCH (:Usuario)-[r:MORA_NA]->(:Torre) RETURN count(r) AS n"),
     "PERTENCE_A (usuário)": (
         "SELECT count(*) AS n FROM tb_rel_usuarios_condominios WHERE aprovado AND data_saida IS NULL",
         "MATCH (:Usuario)-[r:PERTENCE_A]->(:Condominio) RETURN count(r) AS n",
@@ -54,11 +57,13 @@ CONTAGENS: dict[str, tuple[str, str]] = {
         "MATCH ()-[r:NA_TORRE]->() RETURN count(r) AS n",
     ),
     "VALIDOU": (
-        "SELECT count(*) AS n FROM tb_rel_votos_postagens WHERE motivo_denuncia_id IS NULL",
+        "SELECT count(*) AS n FROM tb_rel_votos_postagens v "
+        "JOIN tb_lkp_tipos_votos_postagens t ON t.id_tipo_voto = v.tipo_voto_id WHERE t.nome_tipo = 'aprovar'",
         "MATCH ()-[r:VALIDOU]->() RETURN count(r) AS n",
     ),
     "DENUNCIOU": (
-        "SELECT count(*) AS n FROM tb_rel_votos_postagens WHERE motivo_denuncia_id IS NOT NULL",
+        "SELECT count(*) AS n FROM tb_rel_votos_postagens v "
+        "JOIN tb_lkp_tipos_votos_postagens t ON t.id_tipo_voto = v.tipo_voto_id WHERE t.nome_tipo = 'denunciar'",
         "MATCH ()-[r:DENUNCIOU]->() RETURN count(r) AS n",
     ),
     "APROVADO_EM": (
@@ -68,12 +73,12 @@ CONTAGENS: dict[str, tuple[str, str]] = {
         "MATCH ()-[r:APROVADO_EM]->() RETURN count(r) AS n",
     ),
     "TEM_DIFICULDADE_EM": (
-        """SELECT count(*) AS n FROM (
+        f"""SELECT count(*) AS n FROM (
              SELECT t.usuario_id, q.curso_id,
                     count(*) AS tentativas, sum(CASE WHEN t.aprovado THEN 0 ELSE 1 END) AS reprovacoes
              FROM tb_tentativas_quiz t JOIN tb_quizzes q ON q.id_quiz = t.quiz_id
              WHERE t.concluido_em IS NOT NULL GROUP BY 1, 2) x
-           WHERE reprovacoes >= %(min_rep)s AND reprovacoes::float / tentativas >= %(min_taxa)s""",
+           WHERE reprovacoes >= {DIFICULDADE_MIN_REPROVACOES} AND reprovacoes::float / tentativas >= {DIFICULDADE_MIN_TAXA}""",
         "MATCH ()-[r:TEM_DIFICULDADE_EM]->() RETURN count(r) AS n",
     ),
 }
@@ -85,14 +90,8 @@ TOTAIS_GRAFO = {
 
 
 async def contar(populator: Any) -> dict[str, dict[str, Any]]:
-    from src.etl.populate_graph import DIFICULDADE_MIN_REPROVACOES, DIFICULDADE_MIN_TAXA
-
-    # Constantes do módulo (não é entrada de usuário): entram direto no SQL.
-    substituir = {"%(min_rep)s": str(int(DIFICULDADE_MIN_REPROVACOES)), "%(min_taxa)s": repr(float(DIFICULDADE_MIN_TAXA))}
     resultado: dict[str, dict[str, Any]] = {}
     for chave, (sql, cypher) in CONTAGENS.items():
-        for marcador, valor in substituir.items():
-            sql = sql.replace(marcador, valor)
         row = populator.postgres.fetch_one(sql)
         esperado = int((row or {}).get("n", 0))
         rows = await populator.neo4j.execute(cypher)

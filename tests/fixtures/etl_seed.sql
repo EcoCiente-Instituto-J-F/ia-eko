@@ -8,7 +8,7 @@ INSERT INTO tb_lkp_tipos_usuarios (nome_tipo) VALUES
 INSERT INTO tb_lkp_tipos_condominios (nome_tipo) VALUES ('RESIDENCIAL'),('COMERCIAL');
 INSERT INTO tb_lkp_niveis_confianca (nome_nivel, peso_voto) VALUES ('novato',1),('confiavel',2),('referencia',3);
 INSERT INTO tb_lkp_status_validacoes_postagens (nome_status) VALUES ('PENDENTE'),('APROVADA'),('REPROVADA');
-INSERT INTO tb_lkp_tipos_votos_postagens (nome_tipo) VALUES ('CONFIRMA'),('CONTESTA');
+INSERT INTO tb_lkp_tipos_votos_postagens (nome_tipo) VALUES ('aprovar'),('denunciar');
 INSERT INTO tb_lkp_motivos_denuncia (descricao) VALUES ('foto falsa'),('categoria errada'),('foto repetida');
 INSERT INTO tb_lkp_categorias_residuos (nome_categoria) VALUES
  ('Plástico'),('Papel'),('Vidro'),('Metal'),('Orgânico'),('Eletrônico'),('Óleo'),('Pilhas');
@@ -28,11 +28,17 @@ INSERT INTO tb_condominios (nome_condominio, tipo_condominio_id, sindico_id, end
 SELECT 'Condominio ' || g, 1, g, :usuarios + g FROM generate_series(1, :condos) g;
 
 INSERT INTO tb_torres (nome_torre, condominio_id)
-SELECT 'Torre ' || t, c FROM generate_series(1, :condos) c, generate_series(1, 4) t;
+SELECT 'Torre ' || t, c FROM generate_series(1, :condos) c, generate_series(1, 4) t
+ORDER BY c, t;  -- os ids das torres dependem desta ordem
 
 -- 80% moram em algum condomínio (usuário comum = g%10=0 não mora).
-INSERT INTO tb_moradores (condominio_id, usuario_id)
-SELECT 1 + (id_usuario % :condos), id_usuario FROM tb_usuarios WHERE id_usuario % 10 <> 0 AND id_usuario % 7 <> 0;
+-- torre_id NULL quando id_usuario % 5 = 0; senão uma das 4 torres do próprio condomínio (FK composta).
+INSERT INTO tb_moradores (condominio_id, usuario_id, torre_id)
+SELECT 1 + (id_usuario % :condos), id_usuario,
+       CASE WHEN id_usuario % 5 = 0 THEN NULL
+            ELSE (SELECT min(id_torre) FROM tb_torres t WHERE t.condominio_id = 1 + (id_usuario % :condos)) + (id_usuario % 4)
+       END
+FROM tb_usuarios WHERE id_usuario % 10 <> 0 AND id_usuario % 7 <> 0;
 
 INSERT INTO tb_rel_usuarios_condominios (usuario_id, condominio_id, aprovado, trust_score,
        postagens_validadas_sem_contestacao, denuncias_realizadas, denuncias_procedentes)
@@ -68,7 +74,7 @@ FROM (
 ) p JOIN tb_moradores m ON m.usuario_id = p.uid;
 
 INSERT INTO tb_rel_votos_postagens (postagem_id, usuario_id, tipo_voto_id, motivo_denuncia_id, peso_aplicado, votado_em)
-SELECT DISTINCT ON (pid, uid) pid, uid, 1 + (k % 2), CASE WHEN k % 7 = 0 THEN 1 + (k % 3) ELSE NULL END, 1,
+SELECT DISTINCT ON (pid, uid) pid, uid, 1 + (k % 2), CASE WHEN k % 2 = 1 THEN 1 + (k % 3) END, 1,
        now() - interval '1 day' - (random() * interval '360 days')
 FROM (
   SELECT k, 1 + (random() * (:postagens - 1))::int AS pid, 1 + (random() * (:usuarios - 1))::int AS uid

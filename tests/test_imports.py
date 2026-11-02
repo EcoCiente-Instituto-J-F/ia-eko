@@ -73,9 +73,10 @@ def test_deepseek_provider_requires_key_and_builds_without_network() -> None:
         build_chat_model(settings)
 
     pytest.importorskip("langchain_deepseek")
-    model = build_chat_model(settings.with_overrides(deepseek_api_key="sk-test", deepseek_model="deepseek-chat"))
+    model = build_chat_model(settings.with_overrides(deepseek_api_key="sk-test", deepseek_model="deepseek-flash"))
     assert type(model).__name__ == "ChatDeepSeek"
-    assert model.model_name == "deepseek-chat"
+    assert model.model_name == "deepseek-flash"
+    assert model.extra_body == {"thinking": {"type": "disabled"}}
 
 
 def test_unknown_and_keyless_providers_fail_clearly() -> None:

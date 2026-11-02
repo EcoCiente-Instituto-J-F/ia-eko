@@ -28,6 +28,10 @@ prometheus-client>=0.21,<1
 mcp>=2.2.0
 a2a-sdk[fastapi]==1.1.2
 
+# Base de conhecimento (FAQ_BACKEND=qdrant, padrão): cliente Qdrant + embeddings locais ONNX.
+qdrant-client>=1.12,<2
+fastembed>=0.5,<1
+
 # Testes/benchmark (sem API paga quando LLM_PROVIDER=mock)
 pytest>=8,<10
 pytest-asyncio>=0.24,<2

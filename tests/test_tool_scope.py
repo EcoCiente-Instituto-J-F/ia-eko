@@ -231,20 +231,42 @@ def test_grafo_tools_refuse_without_scope(monkeypatch):
     results = [
         asyncio.run(caminho_relacionamento.ainvoke({"label_origem": "Usuario", "id_origem": 1, "label_destino": "Usuario", "id_destino": 2})),
         asyncio.run(conexoes_diretas.ainvoke({"label": "Usuario", "id": 1})),
-        asyncio.run(usuarios_mais_conectados.ainvoke({"condominio_id": 7})),
+        asyncio.run(usuarios_mais_conectados.ainvoke({})),
     ]
     assert calls == []
     assert all(r["status"] == "negado" for r in results)
 
 
-def test_usuarios_mais_conectados_refuses_another_condominio(monkeypatch):
+def test_recomendacoes_curso_reads_only_the_authenticated_user(monkeypatch):
+    from src.agents.graph_traversal.tools import recomendacoes_curso
+
+    calls = _fake_neo4j(monkeypatch)
+    with tool_scope(MORADOR):
+        asyncio.run(recomendacoes_curso.ainvoke({"limite": 3}))
+    query, params = calls[0]
+    assert params["uid"] == 77
+    assert params["limite"] == 3
+    assert "-[r:RECOMENDADO_PARA]->(u:Usuario {id: $uid})" in query
+    assert "usuario_id" not in recomendacoes_curso.args
+
+
+def test_recomendacoes_curso_refuses_without_scope(monkeypatch):
+    from src.agents.graph_traversal.tools import recomendacoes_curso
+
+    calls = _fake_neo4j(monkeypatch)
+    result = asyncio.run(recomendacoes_curso.ainvoke({}))
+    assert result["status"] == "negado"
+    assert calls == []
+
+
+def test_usuarios_mais_conectados_uses_the_scope_condominio(monkeypatch):
     from src.agents.graph_traversal.tools import usuarios_mais_conectados
 
     calls = _fake_neo4j(monkeypatch)
     with tool_scope(SINDICO):
-        result = asyncio.run(usuarios_mais_conectados.ainvoke({"condominio_id": 999}))
-    assert result["status"] == "negado"
-    assert calls == []
+        asyncio.run(usuarios_mais_conectados.ainvoke({"limite": 5}))
+    _, params = calls[0]
+    assert params["condominio_id"] == 7
 
 
 def test_user_without_condominio_is_denied_condominio_tools():
@@ -274,3 +296,20 @@ def test_ranking_routes_refuse_tokens_without_condominio(client):
     r = client.get("/api/v1/rankings/moradores", params={"ciclo_id": 1, "condominio_id": 7},
                    headers={"X-Usuario-Id": "5", "X-Perfil": "sindico_residencial"})
     assert r.status_code == 403
+
+
+def test_conexoes_diretas_returns_names_but_never_user_names(monkeypatch):
+    from src.agents.graph_traversal.tools import conexoes_diretas
+    from src.database.neo4j import neo4j_db
+
+    calls: list[str] = []
+
+    async def execute(query, parameters=None):
+        calls.append(query)
+        return [{"label_vizinho": "Torre", "id_vizinho": 3, "nome_vizinho": "Torre A"}]
+
+    monkeypatch.setattr(neo4j_db, "execute", execute)
+    with tool_scope(MORADOR):
+        result = asyncio.run(conexoes_diretas.ainvoke({"label": "Condominio", "id": 7}))
+    assert result["conexoes"] == [{"label": "Torre", "id": 3, "nome": "Torre A"}]
+    assert "WHEN vizinho:Usuario OR vizinho:Postagem THEN null" in calls[0]

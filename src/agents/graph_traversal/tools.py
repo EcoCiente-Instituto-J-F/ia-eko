@@ -14,11 +14,8 @@ from src.security.tool_scope import current_scope
 
 logger = logging.getLogger("ecociente.grafo")
 
-# Mesmo vocabulário que o ETL (src/etl/populate_graph.py) realmente escreve.
-# Whitelist obrigatória: labels e tipos de relação são interpolados no Cypher.
-_LABELS_PERMITIDOS = set(NODE_LABELS)
-_RELACOES_PERMITIDAS = set(RELATIONSHIP_TYPES)
-
+# Whitelist obrigatória: labels e tipos de relação (NODE_LABELS/RELATIONSHIP_TYPES,
+# o vocabulário que o ETL escreve) são interpolados no Cypher.
 _SEM_ESCOPO = {"status": "negado", "message": "Contexto de acesso ausente para consultar o grafo."}
 
 
@@ -52,16 +49,6 @@ def _grafo_failure(exc: Exception) -> dict[str, str]:
     raise exc
 
 
-def _validar_label(label: str) -> str | None:
-    return label if label in _LABELS_PERMITIDOS else None
-
-
-def _validar_relacao(tipo_relacao: str | None) -> str | None:
-    if tipo_relacao is None:
-        return None
-    return tipo_relacao if tipo_relacao in _RELACOES_PERMITIDAS else None
-
-
 class CaminhoRelacionamentoArgs(BaseModel):
     label_origem: str
     id_origem: int = Field(gt=0)
@@ -85,17 +72,14 @@ async def caminho_relacionamento(
     if escopo is None:
         return dict(_SEM_ESCOPO)
     sp = escopo["so_proprio"]
-    origem = _validar_label(label_origem)
-    destino = _validar_label(label_destino)
-    if origem is None or destino is None:
+    if label_origem not in NODE_LABELS or label_destino not in NODE_LABELS:
         return {"status": "erro", "message": "Label de entidade não reconhecido pelo domínio do EcoCiente."}
-    relacao = _validar_relacao(tipo_relacao)
-    if tipo_relacao is not None and relacao is None:
+    if tipo_relacao is not None and tipo_relacao not in RELATIONSHIP_TYPES:
         return {"status": "erro", "message": "Tipo de relação não reconhecido pelo domínio do EcoCiente."}
 
-    rel_pattern = f":{relacao}" if relacao else ""
+    rel_pattern = f":{tipo_relacao}" if tipo_relacao else ""
     query = f"""
-    MATCH (origem:{origem} {{id: $id_origem}}), (destino:{destino} {{id: $id_destino}})
+    MATCH (origem:{label_origem} {{id: $id_origem}}), (destino:{label_destino} {{id: $id_destino}})
     WHERE {_no_escopo("origem", sp)} AND {_no_escopo("destino", sp)}
     MATCH caminho = shortestPath((origem)-[{rel_pattern}*1..{profundidade_maxima}]-(destino))
     WHERE ALL(n IN nodes(caminho) WHERE {_no_escopo("n", sp)})
@@ -113,7 +97,7 @@ async def caminho_relacionamento(
         return _grafo_failure(exc)
 
     if not rows:
-        return {"status": "sem_caminho", "origem": {origem: id_origem}, "destino": {destino: id_destino}}
+        return {"status": "sem_caminho", "origem": {label_origem: id_origem}, "destino": {label_destino: id_destino}}
 
     row = rows[0]
     return {
@@ -143,20 +127,20 @@ async def conexoes_diretas(
     if escopo is None:
         return dict(_SEM_ESCOPO)
     sp = escopo["so_proprio"]
-    rotulo = _validar_label(label)
-    if rotulo is None:
+    if label not in NODE_LABELS:
         return {"status": "erro", "message": "Label de entidade não reconhecido pelo domínio do EcoCiente."}
-    relacao = _validar_relacao(tipo_relacao)
-    if tipo_relacao is not None and relacao is None:
+    if tipo_relacao is not None and tipo_relacao not in RELATIONSHIP_TYPES:
         return {"status": "erro", "message": "Tipo de relação não reconhecido pelo domínio do EcoCiente."}
 
-    rel_pattern = f":{relacao}" if relacao else ""
+    rel_pattern = f":{tipo_relacao}" if tipo_relacao else ""
     query = f"""
-    MATCH (centro:{rotulo} {{id: $id}})
+    MATCH (centro:{label} {{id: $id}})
     WHERE {_no_escopo("centro", sp)}
     MATCH p = (centro)-[{rel_pattern}*1..{profundidade}]-(vizinho)
     WHERE ALL(x IN nodes(p) WHERE {_no_escopo("x", sp)})
-    RETURN DISTINCT labels(vizinho)[0] AS label_vizinho, vizinho.id AS id_vizinho
+    RETURN DISTINCT labels(vizinho)[0] AS label_vizinho, vizinho.id AS id_vizinho,
+        CASE WHEN vizinho:Usuario OR vizinho:Postagem THEN null
+             ELSE coalesce(vizinho.nome, vizinho.titulo) END AS nome_vizinho
     LIMIT 50
     """
     try:
@@ -166,26 +150,25 @@ async def conexoes_diretas(
 
     return {
         "status": "ok",
-        "entidade": {rotulo: id},
+        "entidade": {label: id},
         "total_conexoes": len(rows),
-        "conexoes": [{"label": r["label_vizinho"], "id": r["id_vizinho"]} for r in rows],
+        "conexoes": [{"label": r["label_vizinho"], "id": r["id_vizinho"], "nome": r.get("nome_vizinho")} for r in rows],
     }
 
 
 class UsuariosMaisConectadosArgs(BaseModel):
-    condominio_id: int = Field(gt=0)
     limite: int = Field(default=10, ge=1, le=50)
 
 
 @tool("usuarios_mais_conectados", args_schema=UsuariosMaisConectadosArgs)
-async def usuarios_mais_conectados(condominio_id: int, limite: int = 10) -> dict[str, Any]:
+async def usuarios_mais_conectados(limite: int = 10) -> dict[str, Any]:
     """Ranking de moradores do condomínio por grau de conexão (postagens criadas/validadas)."""
     escopo = _escopo_grafo()
-    if escopo is None or condominio_id != escopo["cid"]:
+    if escopo is None:
         return dict(_SEM_ESCOPO)
     query = """
     MATCH (u:Usuario)-[:PERTENCE_A]->(c:Condominio {id: $condominio_id})
-    MATCH (u)-[r:CRIOU|VALIDOU]-(p:Postagem)
+    MATCH (u)-[:CRIOU|VALIDOU]-(p:Postagem)
     RETURN u.id AS usuario_id, COUNT(DISTINCT p) AS conexoes
     ORDER BY conexoes DESC
     LIMIT $limite
@@ -193,15 +176,47 @@ async def usuarios_mais_conectados(condominio_id: int, limite: int = 10) -> dict
     try:
         rows = await neo4j_db.execute(
             query,
-            {"condominio_id": condominio_id, "limite": limite},
+            {"condominio_id": escopo["cid"], "limite": limite},
         )
     except (RuntimeError, Neo4jError) as exc:
         return _grafo_failure(exc)
 
     return {
         "status": "ok",
-        "condominio_id": condominio_id,
+        "condominio_id": escopo["cid"],
         "top_moradores": [{"usuario_id": r["usuario_id"], "conexoes": r["conexoes"]} for r in rows],
+    }
+
+
+class RecomendacoesCursoArgs(BaseModel):
+    limite: int = Field(default=5, ge=1, le=20)
+
+
+@tool("recomendacoes_curso", args_schema=RecomendacoesCursoArgs)
+async def recomendacoes_curso(limite: int = 5) -> dict[str, Any]:
+    """Cursos recomendados ao próprio usuário autenticado, com motivo e score."""
+    user = current_scope()
+    if user is None:
+        return dict(_SEM_ESCOPO)
+    # O usuário vem só do escopo autenticado; reforço vale mesmo sem condomínio.
+    query = """
+    MATCH (c:Curso)-[r:RECOMENDADO_PARA]->(u:Usuario {id: $uid})
+    WHERE coalesce(c.ativo, true)
+    RETURN c.id AS curso_id, c.titulo AS titulo, r.motivo AS motivo, r.score AS score
+    ORDER BY r.motivo = 'reforco' DESC, r.score DESC, c.id
+    LIMIT $limite
+    """
+    try:
+        rows = await neo4j_db.execute(query, {"uid": user.user_id, "limite": limite})
+    except (RuntimeError, Neo4jError) as exc:
+        return _grafo_failure(exc)
+
+    return {
+        "status": "ok",
+        "recomendacoes": [
+            {"curso_id": r["curso_id"], "titulo": r["titulo"], "motivo": r["motivo"], "score": r["score"]}
+            for r in rows
+        ],
     }
 
 
@@ -209,4 +224,5 @@ TOOLS = [
     caminho_relacionamento,
     conexoes_diretas,
     usuarios_mais_conectados,
+    recomendacoes_curso,
 ]

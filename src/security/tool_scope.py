@@ -35,6 +35,7 @@ TOOL_ACTIONS: dict[str, str] = {
     "usuarios_mais_conectados": "analytics_macro",
     "caminho_relacionamento": "grafo",
     "conexoes_diretas": "grafo",
+    "recomendacoes_curso": "grafo",
     "consultar_agente_externo": "educacional",
 }
 

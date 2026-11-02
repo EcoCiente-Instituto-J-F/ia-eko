@@ -204,17 +204,29 @@ def _usage_from_message(message: Any) -> tuple[int, int]:
     return int(meta.get("prompt_eval_count") or 0), int(meta.get("eval_count") or 0)
 
 
+def _cache_hit_tokens(message: Any) -> int:
+    """Tokens de entrada servidos do cache do provedor (DeepSeek: prompt_cache_hit_tokens)."""
+    usage = getattr(message, "usage_metadata", None)
+    details = usage.get("input_token_details") if isinstance(usage, dict) else None
+    return int((details or {}).get("cache_read") or 0)
+
+
 def record_usage(*, provider: str, agent: str, messages: list[Any]) -> TokenUsage:
     """Soma o consumo das mensagens de IA, alimenta Prometheus e o acumulador da conversa."""
     usage = TokenUsage()
+    cache_hit = 0
     for message in messages:
         if getattr(message, "type", None) not in {"ai", "AIMessageChunk"}:
             continue
         input_tokens, output_tokens = _usage_from_message(message)
         usage.input_tokens += input_tokens
         usage.output_tokens += output_tokens
+        cache_hit += _cache_hit_tokens(message)
     if usage.input_tokens:
         LLM_TOKENS.labels(provider=provider, agent=agent, kind="input").inc(usage.input_tokens)
+    if cache_hit:
+        # subconjunto de "input": a fatia de cache hit mede o preço real da entrada
+        LLM_TOKENS.labels(provider=provider, agent=agent, kind="input_cache_hit").inc(cache_hit)
     if usage.output_tokens:
         LLM_TOKENS.labels(provider=provider, agent=agent, kind="output").inc(usage.output_tokens)
     trace = current_trace()

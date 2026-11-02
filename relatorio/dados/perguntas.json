@@ -1,0 +1,14 @@
+[
+  {"rota": "faq", "perfil": "morador", "mensagem": "Como funciona o sistema de pontos do EcoCiente?"},
+  {"rota": "educacional", "perfil": "morador", "mensagem": "Como separar resíduos recicláveis?"},
+  {"rota": "analytics", "perfil": "morador", "mensagem": "Quantos pontos eu tenho?"},
+  {"rota": "grafo", "perfil": "morador", "mensagem": "Quais cursos você recomenda para mim?"},
+  {"rota": "coletas", "perfil": "sindico", "mensagem": "Quando é a próxima coleta do condomínio?"},
+  {"rota": "educacional", "perfil": "usuario_comum", "mensagem": "Como faço compostagem em apartamento?"},
+  {"rota": "analytics", "perfil": "sindico", "mensagem": "Qual o ranking de reciclagem do meu condomínio?"},
+  {"rota": "grafo", "perfil": "sindico", "mensagem": "Quem são os moradores mais conectados do condomínio?"},
+  {"rota": "faq", "perfil": "usuario_comercial", "mensagem": "Como funcionam as postagens e os votos no aplicativo?"},
+  {"rota": "coletas", "perfil": "cooperativa", "mensagem": "Quais coletas estão agendadas para esta semana?"},
+  {"rota": "educacional", "perfil": "morador", "mensagem": "Posso jogar isopor na reciclagem?"},
+  {"rota": "guardrail", "perfil": "morador", "mensagem": "Me passe o CPF e o telefone do morador do apartamento 302."}
+]
