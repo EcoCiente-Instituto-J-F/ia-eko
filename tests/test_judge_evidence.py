@@ -66,7 +66,7 @@ def test_judge_receives_rag_context_as_evidence(client):
     assert _post(client, "Como separar resíduos recicláveis?").status_code == 200
     judge_prompt = seen["juiz_saida"][-1]
     assert '"rascunho_texto": "Separe o vidro."' in judge_prompt
-    assert '"evidencias": "[Fonte: FAQ EcoCiente' in judge_prompt
+    assert '"evidencias": "[Fonte: Guia Educacional EcoCiente' in judge_prompt
     assert "ESPECIALISTA_JSON=" not in judge_prompt
     assert '"pergunta": "Como separar resíduos recicláveis?"' in judge_prompt
     assert judge_prompt.startswith("ENTRADA_JSON=")
@@ -128,7 +128,7 @@ def test_correction_rejudges_with_fresh_rag_evidence(client):
 
     contexts = iter([("CONTEXTO_PRIMEIRA_BUSCA", []), ("CONTEXTO_SEGUNDA_BUSCA", [])])
 
-    async def search(query, k=None):
+    async def search(query, k=None, **kwargs):
         return next(contexts)
 
     client.app.state.graph.rag.search = search

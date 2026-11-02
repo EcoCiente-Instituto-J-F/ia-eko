@@ -151,7 +151,7 @@ def test_rag_returns_real_source_metadata(client):
 
     sources = body["sources"]
     assert sources
-    assert any(source["source"] == "data/FAQ_KNOWLEDGE_BASE.md" for source in sources)
+    assert any(source["source"] == "data/EDUCACIONAL_RECICLAGEM.md" for source in sources)
 
 
 def test_rankings_surface_redis_unavailability(client):
