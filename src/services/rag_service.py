@@ -29,6 +29,9 @@ logger = logging.getLogger("ecociente.rag")
 
 # Título dos trechos do .md local (no índice em memória e na carga do Qdrant).
 TITULO_BASE_LOCAL = "FAQ EcoCiente"
+# Guia de reciclagem, descarte e compostagem que o Educacional consulta.
+TITULO_BASE_EDUCATIVA = "Guia Educacional EcoCiente"
+KIND_EDUCATIVO = "educativo"
 
 
 class HashEmbeddings(Embeddings):
@@ -150,6 +153,18 @@ class RAGService:
                 },
             )
         )
+        edu_path = self.settings.educational_base_file
+        if edu_path.exists():
+            docs.append(
+                Document(
+                    page_content=await self._read_local(edu_path),
+                    metadata={
+                        "title": TITULO_BASE_EDUCATIVA,
+                        "source": Path(self.settings.educational_base_path).as_posix(),
+                        "kind": KIND_EDUCATIVO,
+                    },
+                )
+            )
         if self.settings.enable_external_source:
             try:
                 external_text = await baixar_fonte_externa(self.settings)
@@ -186,20 +201,36 @@ class RAGService:
     async def _read_local(self, path: Path) -> str:
         return await asyncio.to_thread(path.read_text, encoding="utf-8")
 
-    async def search(self, query: str, k: int | None = None) -> tuple[str, list[SourceResponse]]:
+    async def search(
+        self, query: str, k: int | None = None, *, kinds: frozenset[str] | None = None
+    ) -> tuple[str, list[SourceResponse]]:
+        """`kinds` restringe a busca a certos tipos de fonte. O Educacional usa
+        só o guia educativo: a documentação do app e a home do SINIR não ensinam
+        a reciclar e, misturadas, entravam no prompt como se fossem evidência."""
         limite = k or self.settings.rag_top_k
         if self.usa_qdrant:
-            return await self._search_qdrant(query, limite)
+            return await self._search_qdrant(query, limite, kinds)
         if self.vector_store is None:
             return "", []
         started = time.perf_counter()
-        docs = await asyncio.to_thread(self.vector_store.similarity_search, query, k=limite)
+        if kinds:
+            docs = await asyncio.to_thread(
+                self.vector_store.similarity_search, query, k=limite, filter=lambda d: d.metadata.get("kind") in kinds
+            )
+        else:
+            docs = await asyncio.to_thread(self.vector_store.similarity_search, query, k=limite)
         RAG_LATENCY.labels(operation="search").observe(time.perf_counter() - started)
         return self._montar_contexto((doc.metadata, doc.page_content) for doc in docs)
 
-    async def _search_qdrant(self, query: str, limite: int) -> tuple[str, list[SourceResponse]]:
+    async def _search_qdrant(
+        self, query: str, limite: int, kinds: frozenset[str] | None = None
+    ) -> tuple[str, list[SourceResponse]]:
         try:
-            trechos = await self.qdrant.buscar_trechos(query, limite)
+            trechos = await (
+                self.qdrant.buscar_trechos(query, limite, kinds=kinds)
+                if kinds
+                else self.qdrant.buscar_trechos(query, limite)
+            )
         except Exception:
             # Qdrant fora do ar não derruba o chat: o agente segue sem contexto.
             logger.warning("rag_qdrant_busca_falhou", exc_info=True)

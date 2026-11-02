@@ -32,10 +32,13 @@ class QdrantUnavailable(RuntimeError):
     pass
 
 
-def _filtro_tipo(tipo: str) -> Any:
+def _filtro_tipo(tipo: str, kinds: frozenset[str] | None = None) -> Any:
     from qdrant_client import models
 
-    return models.Filter(must=[models.FieldCondition(key="tipo", match=models.MatchValue(value=tipo))])
+    must = [models.FieldCondition(key="tipo", match=models.MatchValue(value=tipo))]
+    if kinds:
+        must.append(models.FieldCondition(key="kind", match=models.MatchAny(any=sorted(kinds))))
+    return models.Filter(must=must)
 
 
 class QdrantFaqService:
@@ -71,13 +74,18 @@ class QdrantFaqService:
             self._client = None
 
     async def buscar_no_qdrant(
-        self, embedding: list[float], limite: int = 3, *, tipo: str | None = None
+        self,
+        embedding: list[float],
+        limite: int = 3,
+        *,
+        tipo: str | None = None,
+        kinds: frozenset[str] | None = None,
     ) -> list[Any]:
         try:
             resultados = await self.client.query_points(
                 collection_name=self.collection_name,
                 query=embedding,
-                query_filter=_filtro_tipo(tipo) if tipo else None,
+                query_filter=_filtro_tipo(tipo, kinds) if tipo else None,
                 limit=limite,
                 with_payload=True,
             )
@@ -113,12 +121,15 @@ class QdrantFaqService:
             )
         return faqs_encontrados
 
-    async def buscar_trechos(self, pergunta: str, limite: int) -> list[dict[str, Any]]:
-        """Trechos do RAG mais próximos da pergunta, na ordem de score."""
+    async def buscar_trechos(
+        self, pergunta: str, limite: int, *, kinds: frozenset[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Trechos do RAG mais próximos da pergunta, na ordem de score.
+        `kinds` restringe a busca a certos tipos de fonte (ex.: só "educativo")."""
         _ = self.client  # sem QDRANT_URL falha aqui, antes de carregar o modelo de embedding
         started = time.perf_counter()
         embedding = await self.embedding_service.agerar_embedding(pergunta)
-        resultados = await self.buscar_no_qdrant(embedding=embedding, limite=limite, tipo=TIPO_TRECHO)
+        resultados = await self.buscar_no_qdrant(embedding=embedding, limite=limite, tipo=TIPO_TRECHO, kinds=kinds)
         RAG_LATENCY.labels(operation="search").observe(time.perf_counter() - started)
         trechos = []
         for resultado in resultados:
