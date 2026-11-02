@@ -28,7 +28,8 @@ INSERT INTO tb_condominios (nome_condominio, tipo_condominio_id, sindico_id, end
 SELECT 'Condominio ' || g, 1, g, :usuarios + g FROM generate_series(1, :condos) g;
 
 INSERT INTO tb_torres (nome_torre, condominio_id)
-SELECT 'Torre ' || t, c FROM generate_series(1, :condos) c, generate_series(1, 4) t;
+SELECT 'Torre ' || t, c FROM generate_series(1, :condos) c, generate_series(1, 4) t
+ORDER BY c, t;  -- os ids das torres dependem desta ordem
 
 -- 80% moram em algum condomínio (usuário comum = g%10=0 não mora).
 -- torre_id NULL quando id_usuario % 5 = 0; senão uma das 4 torres do próprio condomínio (FK composta).
