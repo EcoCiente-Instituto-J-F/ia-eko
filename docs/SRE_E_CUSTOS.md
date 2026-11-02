@@ -24,16 +24,36 @@ Os logs JSON incluem `request_id`, rota, status e duração. Logs do grafo não 
 
 São medidos separadamente HTTP total, agentes/nós, RAG, ferramenta analytics, MongoDB, Redis e LLM. As fases do grafo são observáveis pelos rótulos `guardrail_entrada`, `memoria`, `verificar_compactacao`, `resumir_memoria` (quando necessário), `orquestrador`, especialista, `juiz_saida`, `correcao` e `guardrail_saida`.
 
-| Indicador | Valor atual |
-|---|---|
-| média `/chat` | **VALOR A MEDIR** |
-| mediana | **VALOR A MEDIR** |
-| p95 | **VALOR A MEDIR** |
-| p99 | **VALOR A MEDIR** |
-| latência interagentes | **VALOR A MEDIR** via histogramas por nó + `request_id` |
-| throughput | **VALOR A MEDIR** |
+Medido com `scripts/benchmark_api.py` contra a API local com **LLM simulado** (`LLM_PROVIDER=mock`, `EMBEDDING_PROVIDER=mock`, `STORAGE_MODE=memory`), 200 requisições por cenário. O modelo responde na hora, então estes números são o **piso do sistema** (FastAPI + grafo + guardrails), sem o tempo do LLM. Os dados brutos estão em `relatorio/dados/` (`bench-c1.txt`, `bench-c10.txt`).
 
-Use `scripts/benchmark_api.py` em `mock`/Ollama local. Não há números inventados.
+| Indicador (`/chat`, LLM simulado) | Uma por vez | 10 simultâneas |
+|---|---|---|
+| média | 15,0 ms | 121,3 ms |
+| mediana | 14,2 ms | 118,8 ms |
+| p95 | 20,1 ms | 154,7 ms |
+| p99 | 28,0 ms | 166,0 ms |
+| erro | 0% | 0% |
+| throughput | 66,5 req/s | 81,6 req/s |
+
+Latência interagentes (histogramas por nó, 400 chamadas): o especialista (`educacional`) concentra ~96% do tempo do grafo (média de 11,7 ms); guardrails, memória, orquestrador e juiz ficam abaixo de 0,2 ms de média cada.
+
+### Com a DeepSeek real
+
+Mesma API local (`LLM_PROVIDER=deepseek`, modelo `deepseek-flash`, sem thinking; `STORAGE_MODE=memory`; Qdrant e Postgres ativos), 28 requisições por cenário, usando `relatorio/dados/perguntas.json` em rodízio (dados em `bench-deepseek-c1.txt` e `bench-deepseek-c10.txt`).
+
+| Indicador (`/chat`, DeepSeek) | Uma por vez | 10 simultâneas |
+|---|---|---|
+| média | 7.382 ms | 5.018 ms |
+| mediana | 6.655 ms | 6.007 ms |
+| p95 | 8.353 ms | 8.236 ms |
+| p99 | 52.259 ms | 8.456 ms |
+| erro | 3,57% (1 de 28) | 0% |
+| throughput | 0,14 req/s | 1,54 req/s |
+
+- O tempo típico de uma resposta com o modelo real é de **6 a 8 s**, quase todo do LLM: o piso do sistema medido com o mock (15 ms) é desprezível perto disso. O p95 de ~8,3 s está dentro do alerta do projeto (p95 do `/chat` acima de 15 s por 10 min).
+- O único erro e o p99 de 52 s da rodada de uma por vez vieram da mesma requisição: o agente `grafo` tentou o Neo4j Aura e o DNS não resolveu (`Cannot resolve address ...databases.neo4j.io:7687`), o que virou HTTP 500. É problema do ambiente de teste, não do modelo. Mas o `/health` marcou `neo4j: ok` nesse momento, e o erro da tool não é tratado: vira 500 em vez de uma resposta de indisponibilidade.
+- `calendar_api` estava `unavailable` durante a medição, então perguntas de `coletas` não refletem a API de calendário real.
+- Amostra pequena (28 por cenário): o p95 e o p99 são indicativos. Para um número firme, repita com `--requests 200`.
 
 ## Error rate
 
