@@ -12,6 +12,7 @@ from src.agents.output_parsing import (
     parse_input_judge,
     parse_output_judge,
     parse_route,
+    render_specialist_answer,
 )
 
 
@@ -229,3 +230,72 @@ def test_e2e_previous_turn_censorship_never_leaks_into_next_turn(client) -> None
     assert second["agent"] == "guardrail_entrada"
     assert "RESPOSTA_DO_TURNO_1" not in second["answer"]
     assert second["judge"] is None
+
+
+
+def test_render_specialist_json_answer_in_portuguese() -> None:
+    raw = (
+        '{"dominio":"educador","resposta":"Não coloque pilhas na coleta comum.",'
+        '"recomendacao":"Procure um ponto de coleta adequado.",'
+        '"esclarecer":"Qual é o tipo de pilha?",'
+        '"evidencias":["FAQ EcoCiente | chunk 8"]}'
+    )
+    answer = render_specialist_answer(raw, "educacional")
+    assert answer == (
+        "Não coloque pilhas na coleta comum.\n\n"
+        "Procure um ponto de coleta adequado.\n\n"
+        "Qual é o tipo de pilha?"
+    )
+    assert '"dominio"' not in answer
+    assert '"evidencias"' not in answer
+
+
+def test_render_specialist_fenced_json() -> None:
+    fence = chr(96) * 3
+    raw = fence + 'json\n{"resposta":"Separe os recicláveis.","recomendacao":""}\n' + fence
+    assert render_specialist_answer(raw, "faq") == "Separe os recicláveis."
+
+
+def test_render_specialist_keeps_plain_text_and_other_agents() -> None:
+    raw = '{"resposta":"Texto."}'
+    assert render_specialist_answer("Resposta simples.", "educacional") == "Resposta simples."
+    assert render_specialist_answer(raw, "analytics") == raw
+    assert render_specialist_answer(raw, "coletas") == raw
+    assert render_specialist_answer('{"resposta": 123}', "educacional") == '{"resposta": 123}'
+    assert render_specialist_answer('{"outro":"valor"}', "educacional") == '{"outro":"valor"}'
+    assert render_specialist_answer("{json incompleto", "educacional") == "{json incompleto"
+
+
+def test_e2e_json_specialist_returns_natural_answer(client) -> None:
+    client.app.state.graph.agents.invoke = _scripted(
+        {
+            "juiz_entrada": '{"status":"aprovado"}',
+            "orquestrador": '{"route":"educador"}',
+            "educacional": (
+                '{"dominio":"educador","resposta":"Separe o vidro.",'
+                '"recomendacao":"Consulte a coleta seletiva.",'
+                '"esclarecer":"","evidencias":["base local"]}'
+            ),
+            "juiz_saida": '{"status":"aprovado"}',
+        }
+    )
+    body = _post(client).json()
+    assert body["answer"] == "Separe o vidro.\n\nConsulte a coleta seletiva."
+    assert "evidencias" not in body["answer"]
+    assert body["judge"]["aprovado"] is True
+
+
+def test_e2e_encoded_secret_remains_redacted_after_json_decoding(client) -> None:
+    encoded_secret = 'sk-' + chr(92) + 'u0054ESTESEGREDO1234567890'
+    answer_json = '{"resposta":"A chave é ' + encoded_secret + '."}'
+    client.app.state.graph.agents.invoke = _scripted(
+        {
+            "juiz_entrada": '{"status":"aprovado"}',
+            "orquestrador": '{"route":"educador"}',
+            "educacional": answer_json,
+            "juiz_saida": '{"status":"aprovado"}',
+        }
+    )
+    body = _post(client).json()
+    assert "sk-TESTESEGREDO1234567890" not in body["answer"]
+    assert "[SEGREDO REDIGIDO]" in body["answer"]
