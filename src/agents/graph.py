@@ -12,7 +12,7 @@ from src.agents.coleta.agent import CollectionAgent
 from src.agents.factory import AgentSuite
 from src.agents.state import EcoState
 from src.core.config import Settings
-from src.agents.output_parsing import parse_input_judge
+from src.agents.output_parsing import parse_input_judge, render_specialist_answer
 from src.observability.metrics import (
     AGENT_LATENCY,
     GUARDRAIL_BLOCKED,
@@ -26,7 +26,7 @@ from src.observability.tracing import TracingService
 from src.security.policies import authorize_route
 from src.security.tool_scope import tool_scope
 from src.shared.context import UserContext
-from src.services.rag_service import RAGService
+from src.services.rag_service import KIND_EDUCATIVO, RAGService
 from src.integrations.mcp.client import CalendarMcpClient
 from src.services.session_service import SessionService
 from src.services.memory_summarizer_service import MemorySummarizerService
@@ -204,11 +204,37 @@ class EcoGraphRuntime:
             }
         return {**self._mark(state, "orquestrador", started), "route": route, "agent": route}
 
+    # Fontes de cada especialista RAG. Educacional só lê o guia de reciclagem; o
+    # FAQ lê a base do app (kinds=None = todas as fontes).
+    _RAG_KINDS: dict[str, frozenset[str]] = {"educacional": frozenset({KIND_EDUCATIVO})}
+    _CONTINUACAO_MAX_PALAVRAS = 4
+
+    @classmethod
+    def rag_query(cls, mensagem: str, memory: dict[str, Any] | None) -> str:
+        """Mensagem curta de continuação ("e o vidro?") não se sustenta sozinha na
+        busca vetorial: junta a pergunta anterior do usuário para dar assunto."""
+        if len(mensagem.split()) > cls._CONTINUACAO_MAX_PALAVRAS:
+            return mensagem
+        for message in reversed((memory or {}).get("recent_messages", []) or []):
+            if str(message.get("role", "")).lower() != "user":
+                continue
+            anterior = str(message.get("content", "")).strip()
+            if anterior and anterior != mensagem:
+                return f"{anterior} {mensagem}"
+        return mensagem
+
+    async def _rag_search(self, state: EcoState, name: str) -> tuple[str, list[SourceResponse]]:
+        query = self.rag_query(state["mensagem"], state.get("memory_context"))
+        kinds = self._RAG_KINDS.get(name)
+        if kinds:
+            return await self.rag.search(query, kinds=kinds)
+        return await self.rag.search(query)
+
     async def _rag_specialist(self, state: EcoState, name: str) -> dict[str, Any]:
         started = time.perf_counter()
         user_context = state.get("user_context")
         safe_user_context = user_context.for_agent() if user_context else {}
-        context, sources = await self.rag.search(state["mensagem"])
+        context, sources = await self._rag_search(state, name)
         if not context:
             answer = "A base consultada não contém evidência suficiente para responder com segurança."
         else:
@@ -226,6 +252,7 @@ class EcoGraphRuntime:
                     answer, tool_output = await self.agents.invoke_with_tools(name, prompt)
             else:
                 answer, tool_output = await self.agents.invoke(name, prompt), ""
+            answer = render_specialist_answer(answer)
             if tool_output:
                 context = f"{context}\n\n{tool_output}"
                 if "[consultar_agente_externo]" in tool_output and '"status": "ok"' in tool_output:
@@ -332,6 +359,7 @@ class EcoGraphRuntime:
         )
         with tool_scope(user_context):
             answer, evidence = await invoke(prompt)
+        answer = render_specialist_answer(answer)
         return {
             **self._mark(state, name, started),
             "candidate_answer": answer,
@@ -420,14 +448,18 @@ class EcoGraphRuntime:
         evidence = state.get("evidence", "")
         reason = state.get("judge", {}).get("motivo", "fundamentação insuficiente")
         if route in {"faq", "educacional"}:
-            context, sources = await self.rag.search(state["mensagem"])
+            context, sources = await self._rag_search(state, route)
             evidence = context
             prompt = (
                 f"PERGUNTA_ORIGINAL={state['mensagem']}\nCONTEXTO_RAG:\n{context}\n"
                 f"CORRECAO_EXIGIDA={reason}\nReescreva sem inventar fatos e somente com a evidência fornecida."
             )
             # Retry julgado só contra o RAG: a tool A2A não é usada aqui (seria negada fora do tool_scope); evidência e fonte externas caem de propósito.
-            candidate = await self.agents.invoke(route, prompt) if context else "A base consultada não contém evidência suficiente para responder com segurança."
+            candidate = (
+                render_specialist_answer(await self.agents.invoke(route, prompt))
+                if context
+                else "A base consultada não contém evidência suficiente para responder com segurança."
+            )
         elif route == "grafo":
             sources = state.get("sources", [])
             candidate = (

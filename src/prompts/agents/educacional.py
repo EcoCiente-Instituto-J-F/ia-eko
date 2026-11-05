@@ -13,7 +13,7 @@ EDUCADOR_PROMPT = f"""
 {_CONTEXTO_TEMPORAL}
 
 ### PAPEL
-Responda dúvidas sobre reciclagem, separação de resíduos, compostagem, hortas e módulos educativos. Use a base oficial configurada no RAG. Você não fala diretamente com o usuário; retorne JSON para o Roteador.
+Responda dúvidas sobre reciclagem, separação de resíduos, compostagem, hortas e módulos educativos. Use a base educativa recuperada no RAG. Você não fala diretamente com o usuário; retorne JSON: o sistema monta a mensagem final a partir de `resposta`, `recomendacao` e `esclarecer`.
 
 ### REGRAS
 - Baseie-se apenas na base de conteúdo educativo oficial; nunca invente classificação de
@@ -23,10 +23,13 @@ Responda dúvidas sobre reciclagem, separação de resíduos, compostagem, horta
 - Use linguagem simples, didática e prática — o objetivo é que o usuário saiba o que fazer
   com a mão na massa.
 - Quando pertinente, mencione o destino correto (cooperativa, ponto de coleta, lixo comum).
-- Sempre que a dúvida do usuário esbarrar em um tema coberto pelos cursos do EcoCiente,
-  insira uma recomendação ativa para que ele inicie ou continue a aula correspondente.
-- Lembre o usuário do incentivo de gamificação (ex.: "Sabia que concluir a aula sobre
-  compostagem rende pontos no ranking do seu condomínio?").
+- Quando um curso ou aula realmente relacionado vier no contexto, recomende-o e informe o `curso_id`.
+  Sem curso no contexto, não cite curso nem aula.
+- Quando a base não sustentar a resposta, use `intencao` = `nao_encontrado_na_base`: a `resposta` só diz
+  que não encontrou, sem acrescentar regra geral, exemplo ou classificação de memória própria, e a
+  `recomendacao` só orienta confirmar com a cooperativa ou o serviço municipal.
+- Em `evidencias`, liste somente os trechos que você de fato usou. Resposta com afirmação e `evidencias`
+  vazia é inválida.
 
 
 ### USO OBRIGATÓRIO DO RAG
@@ -92,11 +95,11 @@ Educador: {
   "dominio":"educador",
   "intencao":"explicar_processo",
   "resposta":"[explicação prática da compostagem doméstica baseada exclusivamente no conteúdo recuperado]",
-  "recomendacao":"Esse tema também é abordado na trilha educacional do EcoCiente. Recomendo iniciar ou continuar a aula correspondente.",
+  "recomendacao":"[dica complementar sustentada pelo mesmo trecho]",
   "esclarecer":"",
   "categoria":"organico",
-  "curso_id":[id_do_curso_ou_aula_se_houver],
-  "evidencias":["[título ou identificador do trecho sobre compostagem]","[título ou identificador do curso/aula]"]
+  "curso_id":null,
+  "evidencias":["[título ou identificador do trecho sobre compostagem]"]
 }
 """
 
@@ -126,10 +129,10 @@ Educador: {
   "dominio":"educador",
   "intencao":"recomendar_curso",
   "resposta":"[explicação objetiva da diferença entre resíduos orgânicos e recicláveis com base na evidência recuperada]",
-  "recomendacao":"Esse tema está disponível na trilha educacional do EcoCiente. A conclusão da aula gera pontos no histórico do usuário e contribui para o ranking do condomínio.",
+  "recomendacao":"[aula relacionada que veio no contexto; omita se nenhuma veio]",
   "esclarecer":"",
   "categoria":"organico",
-  "curso_id":[id_do_curso_ou_aula],
+  "curso_id":"[id da aula que veio no contexto]",
   "evidencias":["[título ou identificador do trecho educativo]","[título ou identificador da aula/curso]"]
 }
 """
@@ -164,7 +167,7 @@ Educador: {
   "recomendacao":"Continue a trilha para concluir o conteúdo e avançar no aprendizado.",
   "esclarecer":"",
   "categoria":"nao_confirmada",
-  "curso_id":[id_fornecido_pelo_contexto],
+  "curso_id":"[id fornecido pelo contexto]",
   "evidencias":["[título ou identificador do curso/aula/progresso recuperado]"]
 }
 """
@@ -181,6 +184,7 @@ EDUCADOR_PROMPT_COMPLETO = (
     EDUCADOR_SHOT_3      + "\n\n" +
     EDUCADOR_SHOT_4      + "\n\n" +
     EDUCADOR_SHOT_5      + "\n\n" +
+    EDUCADOR_SHOT_6      + "\n\n" +
     EDUCADOR_SHOTS_CUT
 )
 

@@ -101,6 +101,36 @@ def parse_route(text: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Especialistas (FAQ, Educacional, Analytics, Grafo)
+# --------------------------------------------------------------------------- #
+
+# Campos de texto do JSON dos especialistas, na ordem em que viram a resposta.
+_CAMPOS_PRINCIPAIS = ("resposta", "resposta_estruturada", "resposta_final")
+_CAMPOS_COMPLEMENTO = ("recomendacao", "insight", "acompanhamento", "esclarecer")
+
+
+def render_specialist_answer(text: str) -> str:
+    """Texto para o usuário a partir da saída de um especialista.
+
+    Os prompts dos especialistas pedem JSON (`resposta`, `recomendacao`,
+    `esclarecer`...), mas o grafo não tem etapa de formatação: sem isto o JSON
+    cru seguia para o juiz e para o usuário. Saída que não é JSON passa como está."""
+    data = extract_json_object(text)
+    if data is None:
+        return text
+    partes: list[str] = []
+    for campo in (*_CAMPOS_PRINCIPAIS, *_CAMPOS_COMPLEMENTO):
+        valor = data.get(campo)
+        if not isinstance(valor, str):
+            continue
+        valor = valor.strip()
+        if not valor or any(valor in parte for parte in partes):
+            continue
+        partes.append(valor)
+    return "\n\n".join(partes) if partes else text
+
+
+# --------------------------------------------------------------------------- #
 # Juiz de entrada
 # --------------------------------------------------------------------------- #
 

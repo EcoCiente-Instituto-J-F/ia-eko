@@ -78,6 +78,8 @@ class Settings:
     neo4j_database: str | None = "neo4j"
 
     knowledge_base_path: str = "data/FAQ_KNOWLEDGE_BASE.md"
+    # Conteúdo de reciclagem/descarte/compostagem que o Educacional consulta (kind="educativo").
+    educational_base_path: str = "data/EDUCACIONAL_RECICLAGEM.md"
     enable_external_source: bool = True
     external_source_url: str = "https://sinir.gov.br/"
     external_source_title: str = "SINIR — Sistema Nacional de Informações sobre a Gestão dos Resíduos Sólidos"
@@ -213,6 +215,13 @@ class Settings:
     @property
     def knowledge_base_file(self) -> Path:
         path = Path(self.knowledge_base_path)
+        if path.is_absolute():
+            return path
+        return Path(__file__).resolve().parents[2] / path
+
+    @property
+    def educational_base_file(self) -> Path:
+        path = Path(self.educational_base_path)
         if path.is_absolute():
             return path
         return Path(__file__).resolve().parents[2] / path
