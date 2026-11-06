@@ -17,6 +17,7 @@ from src.database.redis import redis_db
 from src.integrations.a2a.server import add_a2a_endpoints
 from src.integrations.auth.client import AuthApiClient
 from src.integrations.calendar.client import CalendarApiClient
+from src.integrations.education.client import CourseCatalogClient
 from src.integrations.mcp.client import CalendarMcpClient
 from src.observability.middleware import RequestContextMiddleware
 from src.observability.tracing import TracingService
@@ -57,6 +58,14 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
             else None
         )
         calendar_mcp = CalendarMcpClient(calendar_api, app_settings)
+        course_catalog = (
+            CourseCatalogClient(
+                app_settings.calendar_api_url,
+                timeout=app_settings.calendar_api_timeout,
+            )
+            if app_settings.calendar_api_url
+            else None
+        )
 
         sessions_service = SessionService(app_settings, mongo_db, redis_db)
         # FAQ e trechos do RAG por busca vetorial no Qdrant. Cliente e modelo de
@@ -95,6 +104,7 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
                 calendar_mcp,
                 tracing=tracing,
                 faq_search=faq_search,
+                course_catalog=course_catalog,
             )
             # Usa o mesmo Redis das sessões; em STORAGE_MODE=memory (ou fallback)
             # o cliente é None e os contadores ficam em memória do processo.
@@ -122,6 +132,8 @@ def create_app(settings_override: Settings | None = None) -> FastAPI:
         finally:
             if calendar_api is not None:
                 await calendar_api.close()
+            if course_catalog is not None:
+                await course_catalog.close()
             await authentication_service.close()
             await rag_service.close()
             await mongo_db.close()
