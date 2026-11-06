@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from src.agents.graph import EcoGraphRuntime
+from src.agents.output_parsing import render_specialist_answer
 from src.api.schemas.chat import ChatRequest, ChatResponse, JudgeDecisionResponse, QuotaInfo, TokenUsageResponse
 from src.observability.cost import record_chat
 from src.observability.metrics import AGENTS_CALLED, TOKENS_PER_CHAT
@@ -95,6 +96,7 @@ class ChatService:
 
     async def _finish(self, session_id: str, user_id: int, state: dict[str, Any]) -> str:
         answer = state.get("answer", "Não foi possível gerar uma resposta validada.")
+        answer = sanitize_output(render_specialist_answer(answer, state.get("agent", "")))
         await self.sessions.append_message(session_id, user_id, "assistant", answer)
         await self.sessions.update_last_route(
             session_id,

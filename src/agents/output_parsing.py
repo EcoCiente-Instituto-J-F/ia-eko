@@ -66,6 +66,34 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
+
+def render_specialist_answer(text: str, agent: str) -> str:
+    """Converte JSON aprovado do agente em uma resposta legível."""
+    if agent not in {"faq", "educacional"}:
+        return text
+    raw = text.strip()
+    fence = chr(96) * 3
+    if raw.startswith(fence) and raw.endswith(fence):
+        lines = raw.splitlines()
+        if len(lines) >= 3 and lines[0].strip().lower() in {fence, fence + "json"} and lines[-1].strip() == fence:
+            raw = "\n".join(lines[1:-1])
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return text
+    if not isinstance(payload, dict):
+        return text
+    resposta = payload.get("resposta")
+    if not isinstance(resposta, str) or not resposta.strip():
+        return text
+    parts = [resposta.strip()]
+    for name in ("recomendacao", "esclarecer"):
+        value = payload.get(name)
+        if isinstance(value, str) and value.strip() and value.strip() not in parts:
+            parts.append(value.strip())
+    return "\n\n".join(parts)
+
+
 def _kv(text: str, key: str) -> str | None:
     match = re.search(rf"\b{key}\s*=\s*([^\n]+)", text, re.I)
     return match.group(1).strip() if match else None
