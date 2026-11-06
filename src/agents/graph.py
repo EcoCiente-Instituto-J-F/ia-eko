@@ -29,6 +29,8 @@ from src.shared.context import UserContext
 from src.shared.text import fold
 from src.services.rag_service import KIND_EDUCATIVO, RAGService
 from src.integrations.mcp.client import CalendarMcpClient
+from src.integrations.education.client import CourseCatalogClient, CourseCatalogError
+from src.security.request_context import current_bearer_token
 from src.services.session_service import SessionService
 from src.services.memory_summarizer_service import MemorySummarizerService
 from src.services.qdrant_service import QdrantFaqService
@@ -47,6 +49,7 @@ class EcoGraphRuntime:
         calendar_mcp: CalendarMcpClient,
         tracing: TracingService | None = None,
         faq_search: QdrantFaqService | None = None,
+        course_catalog: CourseCatalogClient | None = None,
     ):
         self.settings = settings
         self.sessions = sessions
@@ -56,6 +59,7 @@ class EcoGraphRuntime:
         self.memory_summarizer = MemorySummarizerService(settings, model=self.agents.model, tracing=self.tracing)
         self.collection_agent = CollectionAgent(calendar_mcp)
         self.faq_search = faq_search
+        self.course_catalog = course_catalog
         self.graph = self._build_graph()
 
     @staticmethod
@@ -195,9 +199,7 @@ class EcoGraphRuntime:
         agendamentos, métricas, histórico pessoal ou relações entre usuários.
         """
         texto = fold(mensagem)
-        if "curso" in texto and "recomend" in texto and any(
-            termo in texto for termo in ("recicl", "compost", "sustent", "aprender")
-        ) and not any(termo in texto for termo in ("meu desempenho", "minhas notas", "meu progresso")):
+        if CourseCatalogClient.eh_consulta_catalogo(mensagem):
             return "educacional"
         if "triagem" in texto and any(
             termo in texto for termo in ("papel", "plastico", "vidro", "metal", "materiais")
@@ -350,7 +352,49 @@ class EcoGraphRuntime:
         }
 
     async def educacional(self, state: EcoState) -> dict[str, Any]:
-        return await self._rag_specialist(state, "educacional")
+        if not CourseCatalogClient.eh_consulta_catalogo(state["mensagem"]):
+            return await self._rag_specialist(state, "educacional")
+
+        started = time.perf_counter()
+        sources: list[SourceResponse] = []
+        evidence = ""
+
+        if self.course_catalog is None:
+            answer = "O catálogo de cursos do EcoCiente não está configurado neste ambiente."
+        else:
+            token = current_bearer_token()
+            if not token:
+                answer = "Sua sessão não está disponível para consultar os cursos. Entre novamente na conta e tente de novo."
+            else:
+                try:
+                    cursos = await self.course_catalog.listar_cursos(token)
+                    answer, selecionados = CourseCatalogClient.recomendar(state["mensagem"], cursos)
+                    evidence = json.dumps(
+                        [
+                            {"id": curso.id, "titulo": curso.titulo, "descricao": curso.descricao}
+                            for curso in selecionados
+                        ],
+                        ensure_ascii=False,
+                    )
+                    sources = [
+                        SourceResponse(title="Catálogo de cursos EcoCiente", source="mobile-api:/api/cursos")
+                    ]
+                except CourseCatalogError as erro:
+                    answer = {
+                        "unauthorized": "A sessão não foi aceita pelo catálogo de cursos. Entre novamente e tente de novo.",
+                        "forbidden": "Sua conta não recebeu autorização da Mobile API para consultar os cursos.",
+                        "unavailable": "Não consegui consultar o catálogo de cursos neste momento. Tente novamente.",
+                        "protocol_error": "O catálogo de cursos respondeu em um formato inesperado.",
+                    }.get(erro.code, "Não consegui consultar o catálogo de cursos neste momento.")
+
+        return {
+            **self._mark(state, "educacional", started),
+            "candidate_answer": answer,
+            "sources": sources,
+            "evidence": evidence,
+            "agent": "educacional",
+            "catalogo_verificado": True,
+        }
 
     async def coletas(self, state: EcoState) -> dict[str, Any]:
         started = time.perf_counter()
@@ -424,6 +468,8 @@ class EcoGraphRuntime:
             # Resposta canônica do Qdrant: texto curado e já revisado na base, não
             # gerado por LLM. Passar pelo juiz LLM anularia a economia da busca.
             decision = self._bypass(candidate, "resposta_canonica_qdrant")
+        elif state.get("catalogo_verificado"):
+            decision = self._bypass(candidate, "resposta_deterministica_catalogo_cursos")
         elif state.get("route") == "coletas":
             # A resposta é derivada diretamente da API externa; evitar uma
             # segunda execução por correção impede mutações duplicadas.
@@ -599,6 +645,7 @@ class EcoGraphRuntime:
         "corrections": 0,
         "memory_compaction_error": None,
         "faq_canonica": False,
+        "catalogo_verificado": False,
     }
 
     def _turn_state(self, initial_state: EcoState) -> EcoState:
