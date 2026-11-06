@@ -26,6 +26,7 @@ from src.observability.tracing import TracingService
 from src.security.policies import authorize_route
 from src.security.tool_scope import tool_scope
 from src.shared.context import UserContext
+from src.shared.text import fold
 from src.services.rag_service import KIND_EDUCATIVO, RAGService
 from src.integrations.mcp.client import CalendarMcpClient
 from src.services.session_service import SessionService
@@ -186,12 +187,34 @@ class EcoGraphRuntime:
             f"CONTEXTO_MEMORIA=\n{cls._format_memory_context(memory_context or {})}"
         )
 
+    @staticmethod
+    def _rotear_educacao_publica(route: str, mensagem: str) -> str:
+        """Corrige rotas ambíguas sem elevar qualquer permissão de dados privados.
+
+        Dúvidas educativas são públicas. Não redireciona consultas sobre
+        agendamentos, métricas, histórico pessoal ou relações entre usuários.
+        """
+        texto = fold(mensagem)
+        if "curso" in texto and "recomend" in texto and any(
+            termo in texto for termo in ("recicl", "compost", "sustent", "aprender")
+        ) and not any(termo in texto for termo in ("meu desempenho", "minhas notas", "meu progresso")):
+            return "educacional"
+        if "triagem" in texto and any(
+            termo in texto for termo in ("papel", "plastico", "vidro", "metal", "materiais")
+        ):
+            return "educacional"
+        if "responsabilidade" in texto and "sindico" in texto and any(
+            termo in texto for termo in ("residuo", "separacao", "reciclagem")
+        ):
+            return "educacional"
+        return route
+
     async def orquestrador(self, state: EcoState) -> dict[str, Any]:
         started = time.perf_counter()
         user_context = state.get("user_context")
         prompt = self.build_orchestrator_prompt(state["mensagem"], user_context, state.get("memory_context", {}))
         text = await self.agents.invoke("orquestrador", prompt)
-        route = self.agents.parse_route(text)
+        route = self._rotear_educacao_publica(self.agents.parse_route(text), state["mensagem"])
         ROUTING_DECISIONS.labels(route=route).inc()
         decision = authorize_route(user_context, route, state["mensagem"])
         if not decision.allowed:
