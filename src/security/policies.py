@@ -28,9 +28,9 @@ ROLE_AGENT_ACCESS: dict[str, set[str]] = {
     USUARIO_COMUM: {"faq", "educacional"},
     SINDICO_RESIDENCIAL: {"faq", "educacional", "analytics", "coletas", "grafo"},
     SINDICO_COMERCIAL: {"faq", "educacional", "analytics", "coletas", "grafo"},
-    MORADOR_RESIDENCIAL: {"faq", "educacional", "analytics", "grafo"},
+    MORADOR_RESIDENCIAL: {"faq", "educacional", "analytics", "grafo", "coletas"},
     USUARIO_COMERCIAL: {"faq", "educacional", "analytics", "coletas"},
-    COOPERATIVA: {"faq", "coletas"},
+    COOPERATIVA: {"faq", "educacional", "coletas"},
 }
 
 ROLE_ACTION_ACCESS: dict[str, set[str]] = {
@@ -59,6 +59,7 @@ ROLE_ACTION_ACCESS: dict[str, set[str]] = {
     MORADOR_RESIDENCIAL: {
         "faq",
         "educacional",
+        "coleta_consultar",
         "analytics_individual",
         "ranking_moradores",
         "ranking_torres",
@@ -71,7 +72,7 @@ ROLE_ACTION_ACCESS: dict[str, set[str]] = {
         "analytics_individual",
         "coleta_consultar",
     },
-    COOPERATIVA: {"faq", "coleta_consultar", "coleta_gerenciar", "coleta_confirmar", "coleta_agenda"},
+    COOPERATIVA: {"faq", "educacional", "coleta_consultar", "coleta_gerenciar", "coleta_confirmar", "coleta_agenda"},
 }
 
 _SENSITIVE_ACTIONS = {
