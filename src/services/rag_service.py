@@ -267,7 +267,10 @@ class RAGService:
             # Sem trechos carregados os agentes responderiam sem contexto:
             # rode python -m src.etl.populate_qdrant.
             try:
-                return "ok" if await self.qdrant.contar(TIPO_TRECHO) > 0 else "error"
+                total = await self.qdrant.contar(TIPO_TRECHO)
+                if total == 0:
+                    logger.warning("rag_qdrant_sem_trechos", extra={"tipo": TIPO_TRECHO})
+                return "ok" if total > 0 else "error"
             except Exception:
                 logger.warning("rag_qdrant_health_falhou", exc_info=True)
                 return "error"
