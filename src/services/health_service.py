@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import httpx
 import psycopg2
@@ -13,6 +14,9 @@ from src.integrations.calendar.client import CalendarApiClient
 from src.services.qdrant_service import QdrantFaqService
 from src.services.rag_service import RAGService
 from src.services.session_service import SessionService
+
+
+logger = logging.getLogger("ecociente.health")
 
 
 class HealthService:
@@ -46,11 +50,16 @@ class HealthService:
         return services
 
     async def _rag_health(self) -> str:
-        # Com FAQ_BACKEND=qdrant isto consulta o Qdrant; o limite evita que um
-        # servidor lento segure o /health.
+        # O Qdrant Cloud pode demorar mais de 5s em contagens filtradas.
+        # Aumentar o timeout apenas nesse backend, sem esconder a falha real.
+        timeout = max(5.0, min(20.0, self.settings.qdrant_timeout + 2.0)) if self.settings.faq_backend == "qdrant" else 5.0
         try:
-            return await asyncio.wait_for(self.rag.health(), timeout=5)
+            return await asyncio.wait_for(self.rag.health(), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning("rag_health_timeout", extra={"timeout_seconds": timeout})
+            return "error"
         except Exception:
+            logger.exception("rag_health_unexpected_error")
             return "error"
 
     async def _qdrant_health(self) -> str:

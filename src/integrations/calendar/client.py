@@ -90,12 +90,21 @@ class CalendarApiClient:
             raise CalendarApiProtocolError("A API de calendário retornou um agendamento inválido.") from exc
 
     async def health(self) -> str:
-        """Verifica a API por endpoint OpenAPI público, sem token."""
-        try:
-            response = await self._client.get(f"{self.base_url}/v3/api-docs")
-        except (httpx.TimeoutException, httpx.TransportError):
-            return "unavailable"
-        return "ok" if response.is_success else "unavailable"
+        """Verifica a API por OpenAPI público, sem enviar JWT.
+
+        Mobile API consolidada expõe /api-docs; a API legada usa /v3/api-docs.
+        Só tenta o caminho alternativo em caso de 404, para não mascarar falhas.
+        """
+        for path in ("/api-docs", "/v3/api-docs"):
+            try:
+                response = await self._client.get(f"{self.base_url}{path}")
+            except (httpx.TimeoutException, httpx.TransportError):
+                return "unavailable"
+            if response.is_success:
+                return "ok"
+            if response.status_code != 404:
+                return "unavailable"
+        return "unavailable"
 
     async def _request(
         self,
